@@ -13,6 +13,8 @@ jobs:
       - uses: actions/setup-node@v5
         with: { node-version: 22, registry-url: 'https://registry.npmjs.org' }
       - run: npm test && npm run lint:skills
+      # Trusted publishing (OIDC) needs npm >= 11.5.1; Node 22 ships npm 10.x
+      - run: npm install -g npm@latest
       - name: Publish if version is new
         run: |
           NAME=$(node -p "require('./package.json').name")
@@ -20,7 +22,5 @@ jobs:
           if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
             echo "Version $VERSION already published — skipping."
           else
-            npm publish --provenance --access public
+            npm publish --access public
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
