@@ -95,6 +95,30 @@ test('check mode with nothing present -> missing/skipped, zero install calls', a
   assert.ok(!calls.some((c) => c.includes('plugin install') || c.includes('plugin enable') || c.includes('marketplace add') || c.includes('uv ')));
 });
 
+test('claude not selected -> superpowers/spring-tools skipped without exec("claude", ...), other plugins unaffected', async () => {
+  const calls = [];
+  const exec = (bin, args) => {
+    calls.push([bin, ...args].join(' '));
+    if (bin === 'claude') throw new Error(`must not exec claude when hasClaude is false: ${[bin, ...args].join(' ')}`);
+    if (bin === 'specify' && args[0] === '--version') return { status: 0, stdout: 'specify 0.1.0', stderr: '' };
+    throw new Error(`unexpected exec call: ${[bin, ...args].join(' ')}`);
+  };
+  const prompt = async () => { throw new Error('must not prompt for claude-only plugins when claude is not selected'); };
+  const home = makeHomeWithUiMarker();
+
+  const results = await provisionPlugins({ exec, check: false, yes: false, prompt, home, hasClaude: false });
+  const r = byItem(results);
+
+  assert.strictEqual(r.superpowers.status, 'skipped');
+  assert.strictEqual(r.superpowers.note, 'claude not selected');
+  assert.strictEqual(r['spring-tools'].status, 'skipped');
+  assert.strictEqual(r['spring-tools'].note, 'claude not selected');
+  // speckit and ui.sh are tool-agnostic and must still be handled normally.
+  assert.strictEqual(r.speckit.status, 'unchanged');
+  assert.strictEqual(r['ui.sh'].status, 'unchanged');
+  assert.ok(!calls.some((c) => c.startsWith('claude ')));
+});
+
 test('declined install prompt -> skipped with declined note, no install calls', async () => {
   const calls = [];
   const exec = (bin, args) => {

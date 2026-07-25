@@ -92,8 +92,9 @@ Verbatim from `V014`:
 
 ## 3. Dependency injection into `@Execution`
 
-Method name is `execution`, params are `final`, and Mongock resolves them from the
-Spring context. Three flavours actually used:
+Method name is `execution`, and Mongock resolves params from the Spring context.
+Params are `final` in 14 of the 15 existing change units — house style, not a
+checkstyle-enforced rule. Three flavours actually used:
 
 `MongoTemplate` for raw collection / index work (`V014`, `V013`):
 
@@ -275,7 +276,9 @@ Documented no-op — note the parameter list can be empty:
 
 The default. `mongock.enabled: false` in `backend/src/test/resources/application-test.yml`
 means the change unit does **not** run at boot, so the test instantiates it with
-`new` and calls `execution(...)` itself. Full file, `V014MakeFavouritesGlobalTest`:
+`new` and calls `execution(...)` itself. Abridged, `V014MakeFavouritesGlobalTest`
+(the `favourite(...)` document-builder helper is omitted — copy it from the real
+file):
 
 ```java
 /**
@@ -349,7 +352,8 @@ Key points:
 ## 7. Test pattern B — pure Mockito, no Spring, no container
 
 Use it when the change unit takes a repository and the logic is a straight
-transformation. `V012MergeDanVegaSourcesTest` in full shape:
+transformation. Abridged, `V012MergeDanVegaSourcesTest` (the `article(...)`
+document-builder helper is omitted — copy it from the real file):
 
 ```java
 @ExtendWith(MockitoExtension.class)

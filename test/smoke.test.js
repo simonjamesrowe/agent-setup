@@ -26,3 +26,29 @@ test('install --target writes skills and instructions for all tools; doctor then
     execFileSync(process.execPath, [bin, 'doctor', '--target', home, '--tools', 'claude,gemini,codex', '--skip', 'mcp,plugins'], { encoding: 'utf8' })
   );
 });
+
+test('--target alone (no --skip) force-skips mcp and plugins: no real-CLI mutation, no mcp/plugins results', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'smoke-target-only-'));
+  const bin = path.join(__dirname, '..', 'bin', 'agent-setup.js');
+  const skillCount = fs.readdirSync(path.join(__dirname, '..', 'components', 'skills')).length;
+
+  // Deliberately no --skip: --target alone must be enough to keep the mcp and
+  // plugins provisioners (which exec real `claude`/`gemini`/`codex`/`uv` CLIs
+  // that mutate REAL user config, not the --target dir) from running at all.
+  const out = execFileSync(
+    process.execPath,
+    [bin, 'install', '--yes', '--target', home, '--tools', 'claude,gemini,codex'],
+    { encoding: 'utf8' }
+  );
+
+  assert.match(out, /--target set: skipping mcp and plugins/);
+  // None of the mcp-server or plugin item names appear anywhere in the report.
+  for (const name of ['playwright', 'excalidraw', 'superpowers', 'speckit', 'spring-tools', 'ui.sh']) {
+    assert.ok(!out.includes(name), `did not expect "${name}" in output:\n${out}`);
+  }
+
+  // Skills/instructions still ran and wrote only inside the target.
+  for (const dir of ['.claude/skills', '.gemini/skills', '.codex/skills']) {
+    assert.strictEqual(fs.readdirSync(path.join(home, dir)).length, skillCount, dir);
+  }
+});

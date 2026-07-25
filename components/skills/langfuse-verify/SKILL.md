@@ -59,7 +59,7 @@ Two version facts drive everything below:
 
 ```bash
 cd ~/workspace/simonjamesrowe/simonrowe-dev-monorepo
-sed -n '1,80p' config/alloy/config.alloy
+cat config/alloy/config.alloy
 grep -n -A4 'langfuse\|langfuse-worker' docker-compose.prod.yml | head -60
 sed -n '28,45p' backend/src/main/resources/application.yml
 cat docs/runbooks/langfuse-observability.md

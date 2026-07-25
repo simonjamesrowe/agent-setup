@@ -174,6 +174,10 @@ stack — see `local-env`).
 
 ### 7. When the pre-commit hook fails
 
+**If installed** — the hook is not versioned (`.git/hooks` isn't checked into
+the repo), so fresh clones don't have it until someone installs it locally.
+Don't assume it ran just because a commit succeeded.
+
 `.git/hooks/pre-commit` mirrors CI. It looks at staged paths only: `^backend/`
 triggers checkstyle then `test` + `jacocoTestReport` +
 `jacocoTestCoverageVerification`; `^frontend/` triggers `npm test -- --run`. If

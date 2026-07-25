@@ -192,7 +192,7 @@ in prod (`prod-logs`) for STOMP/handshake errors, then check in this order:
 
 ## Related skills
 
-- `local-env` — starting the stack, ports, and the reCAPTCHA/env files.
+- `local-env` — starting the stack, ports, and env files.
 - `prod-data-restore` — the restore + re-embed that makes answers meaningful.
 - `langfuse-verify` — confirming the chat call produced an LLM trace.
 - `content-source-add` — the aggregated news/events behind those widgets.

@@ -8,7 +8,7 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
 - https://simonrowe.dev — the site (React frontend)
 - https://api.simonrowe.dev — Spring Boot backend (`/actuator/health`, `/api/blogs`, `/api/profile`; management port 8081 in prod, 8082 default locally)
 - https://console.simonrowe.dev — Portainer (container management)
-- https://langfuse.simonrowe.dev — Langfuse (v2 today: no OTLP ingest, no backend SDK — expect no traces)
+- https://langfuse.simonrowe.dev — Langfuse (prod runs v3: LLM traces flow via Alloy's `ai_only` filter; local compose is still v2 with no OTLP ingest — expect no local traces)
 - Grafana Cloud Loki — prod container logs (`logs-prod-035.grafana.net`, query by `container` label)
 - Production host: Raspberry Pi (ARM64) running `docker-compose.prod.yml`, ingress via Cloudflare → pinggy tunnel → nginx. **No SSH access from this machine**: emit a single copy-paste command block for Simon to run on the Pi and ask for the output.
 - Images: `ghcr.io/simonjamesrowe/simonrowe-dev-monorepo-{backend,frontend}` — pushed by the "Publish" GitHub Actions workflow on merge to main; the Pi pulls (no push deploy).

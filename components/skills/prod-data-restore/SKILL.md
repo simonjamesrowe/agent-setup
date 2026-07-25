@@ -55,6 +55,8 @@ curl -fsS -H "Authorization: Bearer $ADMIN_JWT" \
   http://localhost:8080/api/admin/data-operations/status
 ```
 
+(see [Alternatives](#alternatives) for how to obtain `$ADMIN_JWT`)
+
 ### 2. Open the Data Ops UI and sign in
 
 Target page: `http://localhost:5173/admin/data-operations`.

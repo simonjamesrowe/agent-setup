@@ -2,6 +2,8 @@
   "name": "@simonjamesrowe/agent-setup",
   "version": "0.1.0",
   "description": "AI agent setup for the simonjamesrowe org: skills, instructions, MCP servers and plugins for Claude Code, Gemini CLI and Codex",
+  "keywords": ["agent", "skills", "claude-code", "gemini-cli", "codex", "mcp", "setup"],
+  "author": "Simon Rowe",
   "license": "MIT",
   "repository": { "type": "git", "url": "git+https://github.com/simonjamesrowe/agent-setup.git" },
   "engines": { "node": ">=20" },

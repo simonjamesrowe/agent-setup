@@ -84,7 +84,9 @@ a reviewer looks for.
 
 ### 3. Write `@Execution` with a guard clause
 
-Method name `execution`, `final` parameters, injected from the Spring context:
+Method name `execution`, parameters injected from the Spring context — house
+style makes them `final` (14 of 15 existing change units do; not enforced by
+checkstyle, so don't treat it as a hard rule):
 `MongoTemplate` for index/document surgery, a Spring Data repository for
 document rewrites, or a service/agent bean when reusing application logic.
 

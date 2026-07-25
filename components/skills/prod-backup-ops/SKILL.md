@@ -60,7 +60,7 @@ Also sanity-check the **size**: a full backup is dominated by `uploads/`, so a
 sudden drop of an order of magnitude means media went missing, not that the
 backup got efficient.
 
-Via the UI instead: `https://simonrowe.dev/admin/data-operations` → the
+Via the UI instead: `https://www.simonrowe.dev/admin/data-operations` → the
 **Available Backups** panel lists the same rows. With browser automation
 (Playwright MCP in Claude Code) log in as `admin@simonrowe.dev` and read the
 table; otherwise print those steps and ask Simon for what he sees.
@@ -92,10 +92,12 @@ Progress milestones: collections 10–60% → media 60% → embeddings 70% → m
 complete, ending with a summary like
 `13 collections, 412 documents, 268 media files backed up (252.0 MB)`.
 
-Upload speed is tuned in `GoogleDriveConfig` (Apache5 transport, TCP_NODELAY,
-1 MB socket buffers, 10 MB resumable chunks, 5-minute per-request read timeout)
-because the defaults capped the Pi's residential uplink at ~5 KB/s. A large
-backup taking several minutes is normal.
+Upload speed is tuned in `GoogleDriveService` (Apache5 transport, TCP_NODELAY,
+1 MB socket buffers, 5-minute per-request read timeout) because the defaults
+capped the Pi's residential uplink at ~5 KB/s. The resumable **upload** chunk
+size is 1 MB (`GoogleDriveService.UPLOAD_CHUNK_SIZE_BYTES`); 10 MB is the
+**download** chunk size, also in `GoogleDriveService`, not `GoogleDriveConfig`.
+A large backup taking several minutes is normal.
 
 ### 3. Know what is in a backup
 

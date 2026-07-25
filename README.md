@@ -25,7 +25,7 @@ npx @simonjamesrowe/agent-setup doctor
 | `--yes`          | no prompts, accept defaults                                |
 | `--tools <a,b>`  | limit to `claude,gemini,codex` (default: auto-detect)      |
 | `--skip <a,b>`   | skip provisioners: `skills,instructions,mcp,plugins`        |
-| `--target <dir>` | override home directory (testing/CI)                        |
+| `--target <dir>` | override home directory (testing/CI); force-skips `mcp` and `plugins`, which exec real CLIs that mutate actual user config regardless of `--target` |
 
 Commands: `install` (default), `doctor` (check-only), `help`.
 
@@ -77,9 +77,12 @@ Without `--tools`, `agent-setup` auto-detects which of `claude`, `gemini` and
 | `prod-logs`            | Fetch simonrowe.dev production logs from Grafana Cloud Loki, Portainer, or docker compose. |
 | `prod-triage`          | Runbook for simonrowe.dev being down or misbehaving in production. |
 
-See [`docs/SKILLS.md`](docs/SKILLS.md) for naming conventions, where a new
-skill should live, the `SKILL.md` format contract, and the checklist for
-adding one.
+See [`docs/SKILLS.md`](https://github.com/simonjamesrowe/agent-setup/blob/main/docs/SKILLS.md)
+for naming conventions, where a new skill should live, the `SKILL.md` format
+contract, and the checklist for adding one.
+
+> **Platform support**: macOS and Linux. Windows is untested — tool detection
+> shells out to `which`.
 
 ## Updating
 

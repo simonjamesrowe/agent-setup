@@ -36,7 +36,6 @@ function parseArgs(argv) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.command === 'help') { console.log(USAGE); return; }
-  // Wired up in Task 10:
   const { run } = require('../lib/run.js');
   process.exitCode = await run(args);
 }
