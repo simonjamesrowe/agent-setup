@@ -15,12 +15,17 @@ categories, one repo instead of a shared monorepo skills package.
   - `chat-` — the chatbot surface
   - `langfuse-` — LLM observability
   - `local-` — local development environment
+  - `mongock-` — data migrations
   - A skill that doesn't fit an existing category may introduce a new prefix,
     but check first whether it actually belongs in one of the above.
-- **Verb at the leaf**, after the category: `prod-deploy`, `content-source-add`,
-  `chat-e2e-verify` — the last segment names the action, not just the noun.
-  Prefer a single verb (`-add`, `-verify`, `-migration`) over restating the
-  whole sentence.
+- **Prefer a verb at the leaf**, after the category: `prod-deploy`,
+  `content-source-add`, `chat-e2e-verify` — the last segment should usually
+  name the action, not just repeat the noun. This isn't absolute: `local-env`
+  and `mongock-migration` end in a noun because the skill covers a whole area
+  (the local stack, the migration format) rather than one verb-shaped action —
+  that's fine. What to avoid is restating the whole sentence in the name; pick
+  the shortest segment (verb or noun) that distinguishes this skill from
+  others in its category.
 - **Folder name must equal the frontmatter `name`.** This is enforced by
   `npm run lint:skills` (`scripts/lint-skills.js`) — a mismatch is a lint
   failure, not a style suggestion.
