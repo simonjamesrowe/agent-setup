@@ -41,29 +41,11 @@ handles `@DBRef` ordering, takes a safety backup, and rebuilds search state.
 
 ## Workflow
 
-### 1. Free the shared ports (Conductor only)
+### 1. Get the local stack running
 
-The local stack binds fixed host ports: backend `8080`, frontend `5173`,
-MongoDB `27017`, Elasticsearch `9200`, Kafka `9092`. Conductor workspaces are
-separate checkouts of the same repo, so only one may run at a time — stop the
-backend/frontend and `docker compose down` in every other workspace first.
-
-```bash
-cd ~/workspace/simonjamesrowe/simonrowe-dev-monorepo
-./scripts/stop.sh   # kills :8080 / :5173 and takes the infra compose stack down
-```
-
-### 2. Start the local stack
-
-```bash
-cd ~/workspace/simonjamesrowe/simonrowe-dev-monorepo
-docker compose up -d --wait          # mongodb, kafka, elasticsearch, langfuse-db, langfuse
-./scripts/start-backend.sh           # sources backend/.env, runs ../gradlew bootRun on :8080
-./scripts/start-frontend.sh          # npm install + npm run dev on :5173
-```
-
-Run the two scripts in separate terminals (or use `./scripts/start.sh`, which
-starts infra and both apps and stops them all on exit).
+Bring up infrastructure, backend and frontend — port deconfliction between
+Conductor workspaces and the individual start/stop scripts are all covered in
+`local-env`.
 
 Confirm the backend is up and Drive is connected before going further:
 
@@ -73,7 +55,7 @@ curl -fsS -H "Authorization: Bearer $ADMIN_JWT" \
   http://localhost:8080/api/admin/data-operations/status
 ```
 
-### 3. Open the Data Ops UI and sign in
+### 2. Open the Data Ops UI and sign in
 
 Target page: `http://localhost:5173/admin/data-operations`.
 
@@ -85,7 +67,7 @@ from the environment. Otherwise print these manual steps for the user and wait:
 2. Go to **Admin** → **Data Operations**.
 3. Report back what the **Available Backups** panel lists.
 
-### 4. List the backups and pick the newest
+### 3. List the backups and pick the newest
 
 The **Available Backups** panel shows one row per Drive file: file name
 (`backup-YYYYMMDD-HHmmss.zip`, UTC), created date, and formatted size. The
@@ -93,7 +75,7 @@ newest row is the nightly job's output and should be less than 24 hours old.
 If the panel says "No backups found in Google Drive", stop — that is a backup
 problem, not a restore problem; go to `prod-backup-ops`.
 
-### 5. Restore it
+### 4. Restore it
 
 Click **Restore** on the newest row, then confirm in the **Confirm Restore**
 dialog (it warns that all current data will be replaced with that archive).
@@ -119,7 +101,7 @@ restore skips the dependency ordering, the safety backup, the uploads sync and
 the index/embedding rebuild, and leaves dangling `@DBRef`s that surface as
 half-rendered blogs and empty skill groups.
 
-### 6. Watch progress
+### 5. Watch progress
 
 The UI subscribes to `GET /api/admin/data-operations/progress`, a
 `text/event-stream` SSE endpoint, and renders the message + percentage. Leave
@@ -129,7 +111,7 @@ feed and have to poll `GET /status` instead.
 Expect roughly: safety backup 5% → download 15% → validate 25% → collections
 30–65% → media 70% → search index 80% → embeddings 90% → done.
 
-### 7. Rebuild index and re-embed
+### 6. Rebuild index and re-embed
 
 Once the restore reports success, trigger the two follow-ups from the same page:
 
@@ -143,7 +125,7 @@ archive contained no `embeddings/content-embeddings.json` (the backend logs
 `No vector embeddings found in backup` when that happens), otherwise chat and
 semantic search return nothing.
 
-### 8. Verify
+### 7. Verify
 
 ```bash
 curl -fsS http://localhost:8080/api/blogs | head -c 400
