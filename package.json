@@ -8,7 +8,7 @@
   "bin": { "agent-setup": "bin/agent-setup.js" },
   "files": ["bin/", "lib/", "components/", "scripts/"],
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/*.test.js",
     "lint:skills": "node scripts/lint-skills.js"
   },
   "publishConfig": { "access": "public" }
