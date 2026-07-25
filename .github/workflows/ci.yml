@@ -1,0 +1,23 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm test
+      - run: npm run lint:skills
+      - name: Install smoke test against temp home
+        run: |
+          TARGET="$(mktemp -d)"
+          node bin/agent-setup.js install --yes --target "$TARGET" --tools claude,gemini,codex --skip mcp,plugins
+          for d in .claude/skills .gemini/skills .codex/skills; do
+            [ "$(ls "$TARGET/$d" | wc -l)" -eq "$(ls components/skills | wc -l)" ] || { echo "count mismatch in $d"; exit 1; }
+          done
+          grep -q 'AGENT-SETUP:SIMONJAMESROWE START' "$TARGET/.claude/CLAUDE.md"
+          node bin/agent-setup.js doctor --target "$TARGET" --tools claude,gemini,codex --skip mcp,plugins
