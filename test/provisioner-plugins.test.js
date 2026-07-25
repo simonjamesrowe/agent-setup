@@ -1,21 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const fs = require('node:fs');
-const path = require('node:path');
-const os = require('node:os');
 const { provisionPlugins, findPlugin } = require('../lib/provisioners/plugins.js');
-
-function makeHomeWithUiMarker() {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-setup-plugins-'));
-  fs.mkdirSync(path.join(home, '.claude', 'skills', 'ui-foo'), { recursive: true });
-  return home;
-}
-
-function makeHomeWithoutUiMarker() {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-setup-plugins-'));
-  fs.mkdirSync(path.join(home, '.claude', 'skills'), { recursive: true });
-  return home;
-}
 
 function byItem(results) {
   return Object.fromEntries(results.map((r) => [r.item, r]));
@@ -57,7 +42,7 @@ test('findPlugin parses real `claude plugin list --json` shape, matches by id pr
   assert.strictEqual(findPlugin('', 'superpowers'), null);
 });
 
-test('all present and enabled -> unchanged (ui.sh unchanged when marker dir exists)', async () => {
+test('all present and enabled -> unchanged', async () => {
   const calls = [];
   const exec = (bin, args) => {
     calls.push([bin, ...args].join(' '));
@@ -76,14 +61,12 @@ test('all present and enabled -> unchanged (ui.sh unchanged when marker dir exis
   };
   const promptCalls = [];
   const prompt = async (q, def) => { promptCalls.push(q); return def; };
-  const home = makeHomeWithUiMarker();
 
-  const results = await provisionPlugins({ exec, check: false, yes: false, prompt, home });
+  const results = await provisionPlugins({ exec, check: false, yes: false, prompt });
   const r = byItem(results);
 
   assert.strictEqual(r.superpowers.status, 'unchanged');
   assert.strictEqual(r.speckit.status, 'unchanged');
-  assert.strictEqual(r['ui.sh'].status, 'unchanged');
   assert.strictEqual(r['spring-tools'].status, 'unchanged');
   assert.strictEqual(promptCalls.length, 0, 'must not prompt when nothing needs installing');
   assert.ok(!calls.some((c) => c.includes('plugin install') || c.includes('plugin enable') || c.includes('marketplace add')));
@@ -100,9 +83,8 @@ test('superpowers installed but disabled -> enables using marketplace parsed fro
     return { status: 0, stdout: 'ok', stderr: '' };
   };
   const prompt = async () => { throw new Error('prompt should be bypassed by yes:true'); };
-  const home = makeHomeWithUiMarker();
 
-  const results = await provisionPlugins({ exec, check: false, yes: true, prompt, home });
+  const results = await provisionPlugins({ exec, check: false, yes: true, prompt });
   const r = byItem(results);
 
   assert.strictEqual(r.superpowers.status, 'updated');
@@ -110,7 +92,7 @@ test('superpowers installed but disabled -> enables using marketplace parsed fro
   assert.ok(calls.includes('claude plugin enable superpowers@claude-plugins-official'));
 });
 
-test('check mode with nothing present -> missing/skipped, zero install calls', async () => {
+test('check mode with nothing present -> missing, zero install calls', async () => {
   const calls = [];
   const exec = (bin, args) => {
     calls.push([bin, ...args].join(' '));
@@ -121,16 +103,13 @@ test('check mode with nothing present -> missing/skipped, zero install calls', a
     throw new Error(`unexpected exec call in check mode: ${[bin, ...args].join(' ')}`);
   };
   const prompt = async () => { throw new Error('must never prompt in check mode'); };
-  const home = makeHomeWithoutUiMarker();
 
-  const results = await provisionPlugins({ exec, check: true, yes: false, prompt, home });
+  const results = await provisionPlugins({ exec, check: true, yes: false, prompt });
   const r = byItem(results);
 
   assert.strictEqual(r.superpowers.status, 'missing');
   assert.strictEqual(r.speckit.status, 'missing');
   assert.strictEqual(r['spring-tools'].status, 'missing');
-  assert.strictEqual(r['ui.sh'].status, 'skipped');
-  assert.match(r['ui.sh'].note, /ui\.sh/);
   assert.ok(!calls.some((c) => c.includes('plugin install') || c.includes('plugin enable') || c.includes('marketplace add') || c.includes('uv ')));
 });
 
@@ -143,18 +122,16 @@ test('claude not selected -> superpowers/spring-tools skipped without exec("clau
     throw new Error(`unexpected exec call: ${[bin, ...args].join(' ')}`);
   };
   const prompt = async () => { throw new Error('must not prompt for claude-only plugins when claude is not selected'); };
-  const home = makeHomeWithUiMarker();
 
-  const results = await provisionPlugins({ exec, check: false, yes: false, prompt, home, hasClaude: false });
+  const results = await provisionPlugins({ exec, check: false, yes: false, prompt, hasClaude: false });
   const r = byItem(results);
 
   assert.strictEqual(r.superpowers.status, 'skipped');
   assert.strictEqual(r.superpowers.note, 'claude not selected');
   assert.strictEqual(r['spring-tools'].status, 'skipped');
   assert.strictEqual(r['spring-tools'].note, 'claude not selected');
-  // speckit and ui.sh are tool-agnostic and must still be handled normally.
+  // speckit is tool-agnostic and must still be handled normally.
   assert.strictEqual(r.speckit.status, 'unchanged');
-  assert.strictEqual(r['ui.sh'].status, 'unchanged');
   assert.ok(!calls.some((c) => c.startsWith('claude ')));
 });
 
@@ -167,9 +144,8 @@ test('declined install prompt -> skipped with declined note, no install calls', 
     throw new Error(`unexpected exec call: ${[bin, ...args].join(' ')}`);
   };
   const prompt = async () => false;
-  const home = makeHomeWithoutUiMarker();
 
-  const results = await provisionPlugins({ exec, check: false, yes: false, prompt, home });
+  const results = await provisionPlugins({ exec, check: false, yes: false, prompt });
   const r = byItem(results);
 
   assert.strictEqual(r.superpowers.status, 'skipped');

@@ -43,7 +43,7 @@ test('--target alone (no --skip) force-skips mcp and plugins: no real-CLI mutati
 
   assert.match(out, /--target set: skipping mcp and plugins/);
   // None of the mcp-server or plugin item names appear anywhere in the report.
-  for (const name of ['playwright', 'excalidraw', 'superpowers', 'speckit', 'spring-tools', 'ui.sh']) {
+  for (const name of ['playwright', 'excalidraw', 'superpowers', 'speckit', 'spring-tools']) {
     assert.ok(!out.includes(name), `did not expect "${name}" in output:\n${out}`);
   }
 

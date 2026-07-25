@@ -56,10 +56,8 @@ Without `--tools`, `agent-setup` auto-detects which of `claude`, `gemini` and
   as `failed` if a server is already registered at a non-user scope that would
   shadow the user-scope one.
 - **Plugins** (Claude Code only, except `speckit`): `superpowers` and
-  `spring-tools` (Claude Code plugin marketplaces), `speckit` (installed via
-  `uv tool install`, tool-agnostic), and `ui.sh` (never automated — installing
-  it requires a personal account token, so `doctor`/`install` just point you at
-  https://ui.sh).
+  `spring-tools` (Claude Code plugin marketplaces) and `speckit` (installed via
+  `uv tool install`, tool-agnostic).
 
 ### Skills
 
@@ -68,6 +66,7 @@ Without `--tools`, `agent-setup` auto-detects which of `claude`, `gemini` and
 | `backend-test`         | Run and interpret simonrowe.dev backend tests, checkstyle and coverage. |
 | `chat-e2e-verify`      | Browser-driven quality check of the simonrowe.dev chatbot against a local environment. |
 | `content-source-add`   | Add a new content-aggregation source (blog/news/events scraper) to simonrowe.dev. |
+| `frontend-design`      | Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. |
 | `langfuse-verify`      | Verify Langfuse LLM trace plumbing for simonrowe.dev end to end. |
 | `local-env`            | Start, stop and verify the simonrowe.dev local development environment. |
 | `mongock-migration`    | Create a Mongock change unit for simonrowe.dev data changes with the repo's idempotency and test patterns. |
