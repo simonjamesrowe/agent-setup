@@ -64,6 +64,7 @@ Without `--tools`, `agent-setup` auto-detects which of `claude`, `gemini` and
 | Skill                 | What it's for |
 | ---------------------- | -------------- |
 | `backend-test`         | Run and interpret simonrowe.dev backend tests, checkstyle and coverage. |
+| `blog-publish`         | Research, draft, illustrate, publish and verify first-party simonrowe.dev blog posts. |
 | `chat-e2e-verify`      | Browser-driven quality check of the simonrowe.dev chatbot against a local environment. |
 | `content-source-add`   | Add a new content-aggregation source (blog/news/events scraper) to simonrowe.dev. |
 | `frontend-design`      | Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. |
