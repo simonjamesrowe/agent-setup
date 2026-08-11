@@ -195,6 +195,14 @@ curl -fsS https://api.simonrowe.dev/api/blogs | head -c 300
   disables Class Data Sharing to dodge an aarch64 G1GC SIGSEGV crash.
 - Only `backend`, `frontend` and `nginx` are in the redeploy service list. New
   services (searxng, langfuse, alloy…) need a real `up -d` on the Pi.
+- **`software-factory` is the trap in that list.** CI publishes a new image for it
+  on every merge, but nothing here deploys it, so the automated code reviewer can
+  sit on a months-old image while the rest of the stack is current — and it fails
+  quietly, without commenting on the pull requests it skips. Deploy it explicitly:
+  `docker compose -f docker-compose.prod.yml up -d software-factory`. If it
+  requests a GitHub App permission the App has not been granted, **every** review
+  fails; widen the App's permissions before deploying its image, never after. See
+  `code-review-triage`.
 - The nightly backup runs 22:00 Europe/London and holds the data-operations lock;
   a `redeploy` POST in that window can 409.
 - `docker-compose.prod.yml`, `.env`, `frontend/nginx.conf` and
@@ -207,3 +215,4 @@ curl -fsS https://api.simonrowe.dev/api/blogs | head -c 300
 - `prod-logs` — reading backend/nginx logs to confirm a fix landed.
 - `prod-backup-ops` — take a backup before a risky deploy.
 - `prod-data-restore` — the same Data Operations controller as `/redeploy`.
+- `code-review-triage` — `software-factory`, which this skill does not deploy.
