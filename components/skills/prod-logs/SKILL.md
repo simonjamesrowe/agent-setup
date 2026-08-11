@@ -31,6 +31,18 @@ Portainer or the Pi.
 - For the Pi: no SSH from the dev machine — emit a copy-paste block and ask for
   the output.
 
+**If a query returns `401 {"status":"error","error":"authentication error:
+invalid scope requested"}`, the credential lacks read.** `GRAFANA_CLOUD_API_KEY`
+is issued from the single `alloy-publisher` access policy in the `simonrowedev`
+org, which exists primarily for ingest. It was `logs:write` + `traces:write`
+only until 2026-08-11, when `logs:read` was added so the same key could query —
+deliberately, so nothing on the Pi or in the env repo needed changing. If that
+scope is ever dropped the whole skill stops working. Re-add it at
+`https://grafana.com/orgs/simonrowedev/access-policies` → `alloy-publisher` →
+Edit → tick **Read** on the `logs` row → Update. Existing tokens pick the scope
+up without being reissued, but allow up to 15 minutes to propagate — a 401
+immediately after saving is expected, not a failure.
+
 ## Workflow
 
 ### 1. Know the label set
@@ -46,8 +58,13 @@ Portainer or the Pi.
 `container` is the one to reach for. Available containers (compose project
 `simonrowe-dev-monorepo`, so `simonrowe-dev-monorepo-<service>-1`):
 `backend`, `nginx`, `pinggy`, `alloy`, `elasticsearch`, `portainer`, `searxng`,
-`langfuse`, `langfuse-worker`, `langfuse-clickhouse`, `langfuse-redis`,
-`langfuse-minio`.
+`software-factory`, `temporal`, `temporal-ui`, `dependencytrack-apiserver`,
+`dependencytrack-frontend`, `langfuse`, `langfuse-worker`,
+`langfuse-clickhouse`, `langfuse-redis`, `langfuse-minio`.
+
+`service` is easier than `container` when you don't want to think about the `-1`
+suffix — `{service="software-factory"}` is the shortest path to code-review
+logs.
 
 ### 2. Query Loki
 
@@ -190,3 +207,4 @@ Be honest about this rather than inventing a dashboard:
 - `prod-deploy` — confirming a deploy landed and the stale-image check.
 - `prod-data-restore` — reading restore failures from the backend log.
 - `prod-backup-ops` — nightly backup job log lines.
+- `code-review-triage` — `{service="software-factory"}` logs in context.
