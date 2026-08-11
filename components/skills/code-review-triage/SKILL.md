@@ -125,14 +125,28 @@ ignored unless `ready_for_review`.
 
 ### 6. Deploying software-factory
 
-**`software-factory` is not in `redeploy.services`** (`backend/src/main/resources/application.yml`,
-which lists only `backend`, `frontend`, `nginx`). Neither
-`POST /api/admin/data-operations/redeploy` nor the `prod-deploy` skill ever pulls
-or restarts it, so it can sit on a stale image indefinitely while everything else
-updates. It must be deployed explicitly on the Pi:
+`software-factory` was **absent from `redeploy.services` until 2026-08-11**, so
+neither `POST /api/admin/data-operations/redeploy` nor `prod-deploy` ever
+deployed it and it sat on whatever image was last started by hand. It is in the
+list now, restarted on its own with `--no-deps` (it declares `temporal` and
+`mongodb` as `service_healthy` dependencies, which must not be able to block or
+restart during a redeploy).
+
+Two things to check when it still looks stale:
+
+- **A pinned `FACTORY_IMAGE` in the deploy `.env`.** The compose default is
+  `…-software-factory:latest`, but the original cutover set this variable
+  explicitly. Pinned to a tag or digest, redeploy dutifully re-pulls the same
+  image forever.
+- **A best-effort restart that failed.** Its restart does not abort the redeploy
+  — a failure is appended to the operation's completion message as
+  `WARNING: could not restart software-factory`. Read the completion message, not
+  just the success status.
+
+To deploy it directly on the Pi:
 
 ```bash
-cd ~/workspace/simonjamesrowe/simonrowe-dev-monorepo && docker compose -f docker-compose.prod.yml up -d software-factory
+cd ~/workspace/simonjamesrowe/simonrowe-dev-monorepo && docker compose -f docker-compose.prod.yml up -d --no-deps software-factory
 ```
 
 `pull_policy: always` means that pulls the new image.

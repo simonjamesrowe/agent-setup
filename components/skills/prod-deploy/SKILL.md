@@ -195,14 +195,17 @@ curl -fsS https://api.simonrowe.dev/api/blogs | head -c 300
   disables Class Data Sharing to dodge an aarch64 G1GC SIGSEGV crash.
 - Only `backend`, `frontend` and `nginx` are in the redeploy service list. New
   services (searxng, langfuse, alloy…) need a real `up -d` on the Pi.
-- **`software-factory` is the trap in that list.** CI publishes a new image for it
-  on every merge, but nothing here deploys it, so the automated code reviewer can
-  sit on a months-old image while the rest of the stack is current — and it fails
-  quietly, without commenting on the pull requests it skips. Deploy it explicitly:
-  `docker compose -f docker-compose.prod.yml up -d software-factory`. If it
-  requests a GitHub App permission the App has not been granted, **every** review
-  fails; widen the App's permissions before deploying its image, never after. See
-  `code-review-triage`.
+- **`software-factory` joined that list on 2026-08-11.** Before then nothing
+  deployed it, so the automated code reviewer ran whatever image was last started
+  by hand — failing quietly, without commenting on the pull requests it skipped.
+  It is restarted on its own with `--no-deps`, and best-effort: a failure is
+  appended to the completion message (`WARNING: could not restart
+  software-factory`) rather than aborting the redeploy, so read that message
+  rather than trusting the success status. If the deploy `.env` pins
+  `FACTORY_IMAGE`, redeploy re-pulls that same image forever and the reviewer
+  never advances. If it requests a GitHub App permission the App has not been
+  granted, **every** review fails — widen the App's permissions before deploying
+  its image, never after. See `code-review-triage`.
 - The nightly backup runs 22:00 Europe/London and holds the data-operations lock;
   a `redeploy` POST in that window can 409.
 - `docker-compose.prod.yml`, `.env`, `frontend/nginx.conf` and
