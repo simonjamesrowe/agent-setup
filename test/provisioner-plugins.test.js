@@ -201,24 +201,26 @@ test('moderne: cli present and mcp registered -> unchanged, no install calls', a
   assert.ok(!calls.some((c) => c.includes('brew install') || c.includes('agent-tools install')));
 });
 
-test('moderne: cli absent -> brew install then agent-tools install, reports installed', async () => {
+test('moderne: cli absent -> brew install then per-agent agent-tools install, reports installed', async () => {
   const calls = [];
   const exec = moderneExec({ moderneInstalled: false, mcpRegistered: false, calls });
   const results = await provisionPlugins({ exec, check: false, yes: true, prompt: async () => true, adapters: claudeOnly });
   const r = byItem(results);
   assert.strictEqual(r.moderne.status, 'installed');
   assert.ok(calls.includes('brew install moderneinc/moderne/mod'));
-  assert.ok(calls.includes('mod config agent-tools install'));
+  assert.ok(calls.includes('mod config agent-tools claude install'));
+  assert.ok(!calls.includes('mod config agent-tools install'));
 });
 
-test('moderne: cli present but mcp not registered -> only runs agent-tools install', async () => {
+test('moderne: cli present but mcp not registered -> only runs per-agent agent-tools install', async () => {
   const calls = [];
   const exec = moderneExec({ moderneInstalled: true, mcpRegistered: false, calls });
   const results = await provisionPlugins({ exec, check: false, yes: true, prompt: async () => true, adapters: claudeOnly });
   const r = byItem(results);
   assert.strictEqual(r.moderne.status, 'installed');
   assert.ok(!calls.includes('brew install moderneinc/moderne/mod'));
-  assert.ok(calls.includes('mod config agent-tools install'));
+  assert.ok(calls.includes('mod config agent-tools claude install'));
+  assert.ok(!calls.includes('mod config agent-tools install'));
 });
 
 test('moderne: no homebrew -> skipped with actionable note, never runs brew install', async () => {
@@ -276,6 +278,83 @@ test('moderne: failing install step -> failed with stderr in the note', async ()
   const r = byItem(results);
   assert.strictEqual(r.moderne.status, 'failed');
   assert.strictEqual(r.moderne.note, 'boom');
+});
+
+// Mixed-state fake: claude already has the moderne MCP server registered, codex does not. This is
+// exactly the scenario that exposed finding 1 live — a single combined `every(...)` check
+// reported claude as `missing` too, purely because codex wasn't registered.
+function moderneMixedExec({ calls = [] } = {}) {
+  return (bin, args) => {
+    const line = [bin, ...args].join(' ');
+    calls.push(line);
+    if (bin === 'claude' && args[0] === 'plugin' && args[1] === 'list') {
+      return {
+        status: 0,
+        stdout: pluginListJson([
+          { id: 'superpowers@claude-plugins-official', enabled: true },
+          { id: 'spring-tools@spring-tools-marketplace', enabled: true },
+        ]),
+        stderr: '',
+      };
+    }
+    if (bin === 'specify' && args[0] === '--version') return { status: 0, stdout: 'specify 0.1.0', stderr: '' };
+    if (bin === 'mod' && args[0] === '--version') return { status: 0, stdout: 'mod 4.6.3', stderr: '' };
+    if (bin === 'brew' && args[0] === '--version') return { status: 0, stdout: 'Homebrew 4.0.0', stderr: '' };
+    if (bin === 'claude' && args[0] === 'mcp' && args[1] === 'get') return { status: 0, stdout: 'moderne\n  Scope: User config\n', stderr: '' };
+    if (bin === 'codex' && args[0] === 'mcp' && args[1] === 'get') return { status: 1, stdout: '', stderr: 'not found' };
+    return { status: 0, stdout: 'ok', stderr: '' };
+  };
+}
+
+test('moderne: mixed registration (claude registered, codex not) — check mode reports each agent separately', async () => {
+  const calls = [];
+  const exec = moderneMixedExec({ calls });
+  const results = await provisionPlugins({
+    exec, check: true, yes: false,
+    prompt: async () => { throw new Error('must never prompt in check mode'); },
+    adapters: [{ key: 'claude' }, { key: 'codex' }],
+  });
+  const moderneRows = results.filter((r) => r.item === 'moderne');
+  assert.strictEqual(moderneRows.find((r) => r.tool === 'claude').status, 'unchanged');
+  assert.strictEqual(moderneRows.find((r) => r.tool === 'codex').status, 'missing');
+  assert.ok(!calls.some((c) => c.includes('brew install') || c.includes('agent-tools')));
+});
+
+test('moderne: mixed registration (claude registered, codex not) — install mode only installs codex', async () => {
+  const calls = [];
+  const exec = moderneMixedExec({ calls });
+  const results = await provisionPlugins({
+    exec, check: false, yes: true, prompt: async () => true,
+    adapters: [{ key: 'claude' }, { key: 'codex' }],
+  });
+  const moderneRows = results.filter((r) => r.item === 'moderne');
+  assert.strictEqual(moderneRows.find((r) => r.tool === 'claude').status, 'unchanged');
+  assert.strictEqual(moderneRows.find((r) => r.tool === 'codex').status, 'installed');
+  assert.ok(calls.includes('mod config agent-tools codex install'));
+  assert.ok(!calls.includes('mod config agent-tools claude install'));
+  assert.ok(!calls.some((c) => c.includes('brew install')));
+  assert.ok(!calls.includes('mod config agent-tools install'));
+});
+
+// Regression guard for finding 2: the blanket `mod config agent-tools install` provisions all
+// eight Moderne-supported agents and writes into the current working directory (it created
+// `.github/instructions/moderne-*.instructions.md` and `.vscode/mcp.json` in a real repo when
+// run for real). It must never be executed, in any scenario.
+test('moderne: blanket "mod config agent-tools install" is never executed', async () => {
+  const scenarios = [
+    { moderneInstalled: false, mcpRegistered: false },
+    { moderneInstalled: true, mcpRegistered: false },
+    { moderneInstalled: true, mcpRegistered: true },
+  ];
+  for (const scenario of scenarios) {
+    const calls = [];
+    const exec = moderneExec({ ...scenario, calls });
+    await provisionPlugins({ exec, check: false, yes: true, prompt: async () => true, adapters: claudeOnly });
+    assert.ok(
+      !calls.includes('mod config agent-tools install'),
+      `blanket install must never run (scenario: ${JSON.stringify(scenario)})`
+    );
+  }
 });
 
 test('moderneAuthStatus: configured when the status command succeeds with output', () => {
