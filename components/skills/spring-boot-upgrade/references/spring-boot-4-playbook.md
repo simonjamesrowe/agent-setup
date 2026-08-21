@@ -233,7 +233,7 @@ Every row verified by reading the published POM of the artifact named, on
 | --- | --- | --- | --- |
 | **Java** | 21 | 17 | No |
 | **Gradle** | 8.13 | 8.14 (or 9.x) | No — recipe bumps the wrapper |
-| **Spring AI** | `1.1.8` | **`2.0.0`** (GA 2026-06-12), latest `2.0.1` | No |
+| **Spring AI** | `1.1.8` | **`2.0.1`** (2.0.0 GA 2026-06-12) | Not a version blocker — **but 2 of 5 declared modules need per-artifact work: see below** |
 | **Embabel** | `0.3.5` | **`1.5.0`** | No — but a 0.x → 1.x jump |
 | **Mongock** | `5.5.1` | **none published** | **Primary risk** |
 | **Testcontainers** | `1.20.4` | `2.0.5` (Boot 4.0 BOM) | No — recipe migrates |
@@ -407,20 +407,34 @@ alone first, and check <https://github.com/temporalio/sdk-java/releases>.
 
 ---
 
-## 4. Recipe artifact resolution
+## 4. Recipe artifact resolution — no credential needed today
 
-OpenRewrite recipe artifacts are moving off Maven Central to the Code Genome
-Project: "Recipes are moving from Maven Central to the Code Genome Project",
-while Maven Central stays necessary because "OpenRewrite's transitive
+**Both paths in the skill body work right now with no credential at all.** Read
+this section only when you need a recipe release newer than Maven Central
+carries.
+
+OpenRewrite recipe artifacts are *moving* off Maven Central to the Code Genome
+Project — "Recipes are moving from Maven Central to the Code Genome Project" —
+while Maven Central stays necessary regardless because "OpenRewrite's transitive
 dependencies still resolve from there"
 (<https://docs.openrewrite.org/reference/latest-versions-of-every-openrewrite-module>).
+They have not moved yet.
 
-As checked on 2026-08-21, `org.openrewrite.recipe:rewrite-spring:6.37.1` is
-still resolvable from Maven Central (and its jar does contain
-`org/openrewrite/java/spring/boot4/…` — the Boot 4 recipes), while
+As checked on 2026-08-21: `org.openrewrite.recipe:rewrite-spring:6.37.1` resolves
+from Maven Central, and that is the **same latest release** the OpenRewrite
+version table lists — Central is not serving a stale version. Its jar does
+contain `org/openrewrite/java/spring/boot4/…`, the Boot 4 recipes, verified by
+downloading and listing it. Meanwhile
 `https://artifacts.codegenomeproject.org/maven` returns `401` unauthenticated.
-So the credentialed path is the durable one, not yet the only one. Configure it
-and stop guessing.
+
+So the Code Genome path is the **durable** one, not the *required* one. Configure
+it when Central falls behind, or when your organisation mirrors Code Genome
+through its own Artifactory/Nexus (the preferred enterprise route in Moderne's
+docs). Do not treat it as a prerequisite for a Boot upgrade — and note that the
+credential is issued **by Moderne**, not self-service, so it may be unobtainable
+for a solo developer. That is a reason to stay on Central, not a blocker.
+
+### If and when you do need it
 
 - Repository: `https://artifacts.codegenomeproject.org/maven`
 - Credentials come **from Moderne**, not from an account you create — the
@@ -452,23 +466,15 @@ is no currently configured Moderne tenant"*, so expect
 `mod config recipes artifacts show` succeeds today and reports the default
 `https://central.sonatype.com/repository/maven-snapshots/`.
 
-Gradle form for the plugin path — credentials read from the environment, never
-written into the file:
+### Gradle form for the plugin path
+
+The default — what the skill body tells you to add, and what resolves today:
 
 ```kotlin
-plugins {
-  id("org.openrewrite.rewrite") version "7.39.0"
-}
+plugins { id("org.openrewrite.rewrite") version "7.39.0" }
 
 repositories {
-  mavenCentral()
-  maven {
-    url = uri("https://artifacts.codegenomeproject.org/maven")
-    credentials {
-      username = System.getenv("CODE_GENOME_USERNAME")
-      password = System.getenv("CODE_GENOME_TOKEN")
-    }
-  }
+  mavenCentral()          // serves rewrite-spring:6.37.1, the current latest
 }
 
 dependencies {
@@ -479,6 +485,26 @@ rewrite {
   activeRecipe("org.openrewrite.java.spring.boot4.UpgradeSpringBoot_4_0")
 }
 ```
+
+The credentialed alternative, **only** if you need a release Central does not
+carry. Credentials are read from the environment and never written into the file:
+
+```kotlin
+repositories {
+  mavenCentral()          // still required — transitive deps resolve from here
+  // Uncomment when Central falls behind and you hold Moderne-issued credentials.
+  // maven {
+  //   url = uri("https://artifacts.codegenomeproject.org/maven")
+  //   credentials {
+  //     username = System.getenv("CODE_GENOME_USERNAME")
+  //     password = System.getenv("CODE_GENOME_TOKEN")
+  //   }
+  // }
+}
+```
+
+Remember that either form is temporary scaffolding in this repo — see §5 for why
+reverting it needs care.
 
 Plugin configuration reference:
 <https://docs.openrewrite.org/reference/gradle-plugin-configuration>.
