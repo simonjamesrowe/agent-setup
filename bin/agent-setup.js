@@ -15,10 +15,11 @@ Flags:
   --tools <a,b>         limit to claude,gemini,codex (default: auto-detect)
   --skip <a,b>          skip provisioners: skills,instructions,mcp,plugins
   --target <dir>        override home directory (testing/CI)
+  --with <a,b>          opt in to optional components: embabel-guide
 `;
 
 function parseArgs(argv) {
-  const args = { command: 'install', yes: false, tools: null, skip: [], target: null };
+  const args = { command: 'install', yes: false, tools: null, skip: [], target: null, with: [] };
   const rest = [...argv];
   while (rest.length) {
     const a = rest.shift();
@@ -27,6 +28,7 @@ function parseArgs(argv) {
     else if (a === '--tools') args.tools = (rest.shift() || '').split(',').filter(Boolean);
     else if (a === '--skip') args.skip = (rest.shift() || '').split(',').filter(Boolean);
     else if (a === '--target') args.target = rest.shift() || null;
+    else if (a === '--with') args.with = (rest.shift() || '').split(',').filter(Boolean);
     else if (a === '--help' || a === '-h') args.command = 'help';
     else { console.error(`Unknown argument: ${a}\n${USAGE}`); process.exit(2); }
   }

@@ -18,3 +18,9 @@ test('exit code 1 iff any failed', () => {
   assert.strictEqual(exitCode([{ status: 'installed' }]), 0);
   assert.strictEqual(exitCode([{ status: 'failed' }]), 1);
 });
+
+test('optional rows never affect the exit code, even under strictMissing', () => {
+  const results = [{ status: 'optional' }, { status: 'unchanged' }];
+  assert.strictEqual(exitCode(results), 0);
+  assert.strictEqual(exitCode(results, { strictMissing: true }), 0);
+});
