@@ -16,7 +16,7 @@ function makeHomeWithGeminiSettings(mcpServers) {
 }
 
 test('server catalog', () => {
-  assert.deepStrictEqual(MCP_SERVERS.map((s) => s.name).sort(), ['excalidraw', 'playwright']);
+  assert.deepStrictEqual(MCP_SERVERS.map((s) => s.name).sort(), ['excalidraw', 'javadocs', 'playwright']);
 });
 
 test('adds missing servers, skips present, refuses project-scoped', () => {
@@ -96,4 +96,23 @@ test('gemini: no ~/.gemini/settings.json at all -> treated as not registered, no
   const byName = Object.fromEntries(results.map((r) => [r.item, r]));
   assert.strictEqual(byName.playwright.status, 'missing');
   assert.strictEqual(byName.excalidraw.status, 'missing');
+});
+
+const codex = ADAPTERS.filter((a) => a.key === 'codex');
+
+test('javadocs registers as an HTTP server with per-adapter argv', () => {
+  const calls = [];
+  const exec = (bin, args) => {
+    calls.push([bin, ...args].join(' '));
+    if (args[1] === 'get') return { status: 1, stdout: '', stderr: 'not found' };
+    return { status: 0, stdout: 'ok', stderr: '' };
+  };
+  const claudeResults = provisionMcp({ adapters: claude, exec, check: false });
+  assert.strictEqual(claudeResults.find((r) => r.item === 'javadocs').status, 'installed');
+  assert.ok(calls.includes('claude mcp add --scope user --transport http javadocs https://www.javadocs.dev/mcp'));
+
+  calls.length = 0;
+  const codexResults = provisionMcp({ adapters: codex, exec, check: false });
+  assert.strictEqual(codexResults.find((r) => r.item === 'javadocs').status, 'installed');
+  assert.ok(calls.includes('codex mcp add javadocs --url https://www.javadocs.dev/mcp'));
 });
