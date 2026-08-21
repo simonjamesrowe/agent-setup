@@ -49,7 +49,7 @@ The chain, in declaration order:
 | --- | --- |
 | `org.openrewrite.java.spring.boot3.UpgradeSpringBoot_3_5` | gets you onto the 3.5 line first |
 | `org.openrewrite.java.spring.cloud2025.UpgradeSpringCloud_2025_1` | Spring Cloud 2025.1 |
-| `org.openrewrite.java.spring.framework.UpgradeSpringFramework_7_0` | Spring Framework 7.0 |
+| `org.openrewrite.java.spring.framework.UpgradeSpringFramework_7_0` | **much more than the name suggests** — see below |
 | `org.openrewrite.java.spring.security7.UpgradeSpringSecurity_7_0` | Spring Security 7.0 |
 | `org.openrewrite.java.spring.batch.SpringBatch5To6Migration` | Spring Batch 6 (no-op here) |
 | `org.openrewrite.java.spring.boot4.SpringBootProperties_4_0` | `application*.yml` property renames |
@@ -71,6 +71,83 @@ The chain, in declaration order:
 | `UpgradeDependencyVersion` for neo4j-migrations, error-handling-spring-boot-starter, JobRunr 8.x | third-party starters that must move in lockstep |
 | `AddAutoConfigureTestRestTemplate`, `AddAutoConfigureWebTestClient`, `AddAutoConfigureMockMvc` | Boot 4 no longer auto-configures these implicitly in slice tests |
 | `MigrateOpenApiGeneratorToSpringBoot4`, `MigrateJsonschema2PojoToSpringBoot4` | codegen plugin config |
+
+### `UpgradeSpringFramework_7_0` is the biggest row in that table
+
+Read its own definition — `META-INF/rewrite/spring-framework-70.yml` in the same
+`rewrite-spring:6.37.1` jar, identical to `main`. Its `recipeList` is:
+
+```yaml
+- org.openrewrite.java.spring.framework.UpgradeSpringFramework_6_2
+- org.openrewrite.java.dependencies.UpgradeDependencyVersion:
+    groupId: org.springframework
+    artifactId: "*"
+    newVersion: 7.0.x
+- org.openrewrite.java.testing.junit6.JUnit5to6Migration
+- org.openrewrite.java.jackson.UpgradeJackson_2_3
+- org.openrewrite.java.spring.kafka.UpgradeSpringKafka_4_0
+- org.openrewrite.java.jspecify.MigrateFromSpringFrameworkAnnotations
+```
+
+So `UpgradeSpringBoot_4_0` transitively performs, with no extra step from you:
+
+- **JUnit 5 → JUnit 6.** Boot 4.0.8 manages `junit-jupiter` 6.0.3. Across ~74
+  backend test classes this is one of the largest parts of the diff.
+- **Jackson 2 → Jackson 3 in Java source** — see the next section.
+- **Spring Kafka 4.0** API migration on top of the managed `spring-kafka` 4.0.7.
+- **JSpecify nullability annotations** replacing Spring's own
+  (`@Nullable`/`@NonNull` moves).
+
+Budget review time for JUnit and Jackson churn specifically; they are the bulk
+of the file count.
+
+### Jackson 2 → 3, including your Java source
+
+Boot 4.0.8's BOM manages `jackson-bom.version = 3.1.5` (Jackson 3) and keeps a
+Jackson 2 line at `jackson-2-bom.version = 2.21.5`
+(verified in <https://repo1.maven.org/maven2/org/springframework/boot/spring-boot-dependencies/4.0.8/spring-boot-dependencies-4.0.8.pom>).
+
+Jackson 3 renames the group IDs and packages: `com.fasterxml.jackson` →
+`tools.jackson`, **except `jackson-annotations`, which keeps groupId
+`com.fasterxml.jackson.core`** and package `com.fasterxml.jackson.annotation`
+(verified in <https://repo1.maven.org/maven2/tools/jackson/jackson-bom/3.1.5/jackson-bom-3.1.5.pom>
+and by listing `tools/jackson/databind/…` in the 3.1.5 databind jar). Class
+renames per the [migration guide](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide):
+`Jackson2ObjectMapperBuilderCustomizer` → `JsonMapperBuilderCustomizer`,
+`@JsonComponent` → `@JacksonComponent`, `@JsonMixin` → `@JacksonMixin`,
+`JsonObjectSerializer` → `ObjectValueSerializer`, `JsonValueDeserializer` →
+`ObjectValueDeserializer`. A deprecated `spring-boot-jackson2` module is the
+temporary bridge for libraries stuck on Jackson 2.
+
+**The recipe already does this to your Java source. Do not run it again.**
+`UpgradeSpringBoot_4_0` → `UpgradeSpringFramework_7_0` chains
+`org.openrewrite.java.jackson.UpgradeJackson_2_3`
+(<https://docs.openrewrite.org/recipes/java/jackson/upgradejackson_2_3>), and
+`rewrite-spring-6.37.1.pom` declares `org.openrewrite.recipe:rewrite-jackson:1.29.0`
+at **`runtime`** scope — so the Jackson recipes are on the classpath by default,
+including for the Path B snippet below, which only names `rewrite-spring`.
+
+`MigrateJacksonBomProperty` (the Boot-4 step that renames a *Maven*
+`jackson-bom.version` property) is therefore **not** the whole Jackson story; it
+is a small Maven-only footnote next to the source migration.
+
+Expect all of this in the diff: `com.fasterxml.jackson` → `tools.jackson`
+imports, `IOException` → `JacksonException` in catches and `throws` clauses of
+serde overrides, `ObjectMapper` setter chains rewritten to builder form, and
+redundant feature flags removed (`UpgradeJackson_2_3`'s own sub-chain includes
+`IOExceptionToJacksonException`, `ReplaceIOExceptionThrowInJacksonOverrides`,
+`MigrateMapperSettersToBuilder`, `UpdateSerializationInclusionConfiguration`
+and more).
+
+What to **verify** rather than redo:
+
+- Seven backend files import `com.fasterxml.jackson.*` today. Three are
+  annotation-only (`JsonProperty`, `JsonInclude`, `JsonIgnoreProperties`) and
+  **must not move** — `jackson-annotations` keeps the `com.fasterxml.jackson.core`
+  groupId. Confirm those three are untouched.
+- Running `UpgradeJackson_2_3` a second time over already-migrated source is a
+  double migration, not a safety net. If the diff looks incomplete, work out why
+  before re-running anything.
 
 ### Starter renames the recipe performs
 
@@ -107,36 +184,8 @@ version literals. Good: the version catalogue entries stay version-less.
 
 ## 2. What it does not do
 
-### Jackson 3 — the big one
-
-Boot 4.0.8's BOM manages `jackson-bom.version = 3.1.5` (Jackson 3) and keeps a
-Jackson 2 line at `jackson-2-bom.version = 2.21.5`
-(verified in <https://repo1.maven.org/maven2/org/springframework/boot/spring-boot-dependencies/4.0.8/spring-boot-dependencies-4.0.8.pom>).
-
-Jackson 3 renames the group IDs and packages: `com.fasterxml.jackson` →
-`tools.jackson`, **except `jackson-annotations`, which keeps groupId
-`com.fasterxml.jackson.core`** and package `com.fasterxml.jackson.annotation`
-(verified in <https://repo1.maven.org/maven2/tools/jackson/jackson-bom/3.1.5/jackson-bom-3.1.5.pom>
-and by listing `tools/jackson/databind/…` in the 3.1.5 databind jar). Class
-renames per the [migration guide](https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide):
-`Jackson2ObjectMapperBuilderCustomizer` → `JsonMapperBuilderCustomizer`,
-`@JsonComponent` → `@JacksonComponent`, `@JsonMixin` → `@JacksonMixin`,
-`JsonObjectSerializer` → `ObjectValueSerializer`, `JsonValueDeserializer` →
-`ObjectValueDeserializer`. A deprecated `spring-boot-jackson2` module is the
-temporary bridge for libraries stuck on Jackson 2.
-
-`UpgradeSpringBoot_4_0` does **not** touch Jackson Java source — its only
-Jackson step, `MigrateJacksonBomProperty`, renames a *Maven* property. Run the
-dedicated recipe afterwards:
-
-```text
-org.openrewrite.java.jackson.UpgradeJackson_2_3
-```
-
-from `org.openrewrite.recipe:rewrite-jackson:1.29.0`
-(<https://docs.openrewrite.org/recipes/java/jackson/upgradejackson_2_3>). Seven
-backend files import `com.fasterxml.jackson.*` today; three of those are
-annotation-only imports that must **not** move.
+Jackson, JUnit and Spring Kafka are **not** in this list — see section 1; the
+recipe handles all three. What follows genuinely is left to you.
 
 ### Java, Gradle and build-plugin floors
 
@@ -191,7 +240,7 @@ Every row verified by reading the published POM of the artifact named, on
 | **CycloneDX plugin** | `2.1.0` | `3.0.0` | No — manual bump |
 | **Temporal starter** (`:reviewer:`) | `1.36.0` | unresolved, see below | Watch |
 
-### Spring AI — clear
+### Spring AI — a version bump plus one rename and one gap
 
 Spring AI 2.0.0 went GA on 2026-06-12 with a Spring Boot 4.0/4.1 and Spring
 Framework 7.0 baseline
@@ -201,14 +250,72 @@ Verified directly:
 `org.springframework.boot:spring-boot-starter-restclient:4.1.1` and
 `spring-boot-starter-webclient:4.1.1`.
 
-**Caveat worth planning around:** those starters resolve Boot **4.1.x**-level
-dependencies even though 2.0.x documents 4.0.x support — see
-<https://github.com/spring-projects/spring-ai/issues/6465>. The recipe pins
-Boot to `4.0.x`. Expect a version-alignment argument and consider finishing on
-Boot **4.1.1** (the current GA) rather than 4.0.x.
+**"Spring AI 2.0.1 exists" is not enough — check each artifact.** The backend
+declares five Spring AI modules and two of them have no 2.0.x GA under their
+current name. Every cell below is a Maven Central `maven-metadata.xml` read plus
+a `2.0.1` POM `HEAD`, on 2026-08-21:
 
-Spring AI 2.0 also moves from Jackson 2 to Jackson 3, which compounds the
-Jackson work above.
+| Declared in the repo | Latest on Central | 2.0.1? | Action |
+| --- | --- | --- | --- |
+| `spring-ai-starter-model-openai` | `2.0.1` | 200 | bump |
+| `spring-ai-starter-mcp-server-webmvc` | `2.0.1` | 200 | bump |
+| `spring-ai-starter-vector-store-elasticsearch` | `2.0.1` | 200 | bump |
+| `spring-ai-advisors-vector-store` | **`2.0.0-M8`** | **404** | **renamed** → `spring-ai-vector-store-advisor:2.0.1` (200) |
+| `spring-ai-starter-model-openai-sdk` | **`2.0.0-M4`** | **404** | **no 2.0 GA under any name** — `spring-ai-openai-sdk` is also 404 at 2.0.1 |
+
+So the Spring AI move is: bump three, **rename one** catalogue entry, and make a
+decision about `spring-ai-starter-model-openai-sdk`, whose 2.0 line stopped at
+`M4`. Check whether its capability folded into
+`spring-ai-starter-model-openai:2.0.1` before assuming the dependency can simply
+be dropped. Bumping `springAi` to `2.0.1` without doing this fails Gradle
+resolution on two catalogue entries.
+
+Spring AI 2.0 also moves from Jackson 2 to Jackson 3, which the recipe's Jackson
+chain handles on our side.
+
+### Boot 4.0 or 4.1 — an open decision, not a settled one
+
+The recipe pins Boot to `4.0.x`. Spring AI 2.0.1 and Embabel 1.5.0 both *declare*
+Boot `4.1.x` dependencies. `4.1.1` is the current GA. What that does and does not
+mean:
+
+- <https://github.com/spring-projects/spring-ai/issues/6465> was closed as
+  **completed**, and the maintainer's conclusion was that Maven consumers are
+  fine: `dependency:tree`, `help:effective-pom` and the packaged uber-jar all
+  showed Boot `4.0.7` being used, and the report was a Maven **Enforcer
+  upper-bound visibility** artifact. Quote: *"People wanting to use boot 4.0.x
+  just have to inherit/use a 4.0.x boot starter… Expect that Spring AI will
+  publish poms referencing the latest compatible boot version, while still
+  allowing a lower major version at runtime."* So a declared `4.1.1` is a
+  ceiling-ish hint, **not** a resolved version — do not claim these libraries
+  "pull Boot 4.1.x".
+- A later comment on the same issue (2026-07-24, unaddressed and the issue not
+  reopened) reports the **Gradle** case is less tidy: with `spring-ai-bom:2.0.0`
+  and `spring-boot-dependencies:4.0.7` as *platforms*, Gradle's
+  highest-version-wins gave a mixed tree — `4.1.0` for `spring-boot` and
+  `spring-boot-autoconfigure`, `4.0.7` for `spring-boot-health`.
+- **This repo does not use Gradle platforms for Boot.** Both modules apply
+  `io.spring.dependency-management`, which imposes Maven-style managed versions,
+  so the managed Boot version should win. That is a *prediction*, not a
+  measurement — verify it rather than trusting it:
+
+  ```bash
+  ./gradlew :backend:dependencies --configuration runtimeClasspath | grep -i "spring-boot"
+  ```
+
+Neither target is obviously right. Trade-off:
+
+| | Boot 4.0.x | Boot 4.1.1 |
+| --- | --- | --- |
+| Recipe support | pinned by the recipe, nothing to do | **no 4.1 recipe exists** — hand-bump after the run |
+| Alignment with Spring AI / Embabel | libraries declare 4.1.x above your 4.0.x | matches what they were built against |
+| Risk | a mixed tree if dependency-management does not hold | one more version of delta on top of an already large diff |
+
+If you choose 4.1.1, the procedure is: run the recipe as-is (it lands 4.0.x),
+**then** bump the `springBoot` catalogue entry to `4.1.1` in a separate commit,
+re-run the dependency check above, and re-run the full gate. Do not try to
+retarget the recipe — there is no 4.1 variant, and hand-editing the recipe's
+output mid-run is how you lose track of what changed.
 
 ### Embabel — clear, but a major jump
 
@@ -409,15 +516,30 @@ committing — the `org.openrewrite.rewrite` plugin block, the `rewrite`
 dependency and the Code Genome repository are scaffolding for the run, not part
 of the project:
 
+**In this repo the recipe also edits the root build file, so a blanket
+`git checkout -- build.gradle.kts` destroys recipe output.** The root
+`build.gradle.kts` declares `id("org.springframework.boot") … apply false`,
+`io.spring.dependency-management`, and the cyclonedx/sonarqube plugin aliases —
+all reachable by the chain's `UpgradePluginVersion` steps (pluginIdPattern
+`org.springframework.boot`, and the Kotlin one).
+
+So do **not** revert the whole file. Either:
+
 ```bash
-git diff -- build.gradle.kts   # the scaffolding goes in the root build file only
-git checkout -- build.gradle.kts
+# Option 1 — keep the recipe's change, drop only the scaffolding, by hand.
+git diff -- build.gradle.kts     # expect BOTH your scaffolding and a plugin bump
+# then delete the plugin block / rewrite dependency / rewrite {} block manually
 ```
 
-The recipe's own output lives in `gradle/libs.versions.toml`,
+```bash
+# Option 2 — stage the recipe's change first, then revert the rest.
+git add -p build.gradle.kts      # stage only the recipe's hunks
+git checkout -- build.gradle.kts # safely discards the unstaged scaffolding
+```
+
+The recipe's other output — `gradle/libs.versions.toml`,
 `backend/build.gradle.kts`, `reviewer/build.gradle.kts`, the wrapper properties
-and the Java/YAML sources — none of which this revert touches. Check the diff
-before reverting, in case a recipe step also edited the root build file.
+and the Java/YAML sources — is untouched by either option.
 
 ---
 
@@ -425,6 +547,8 @@ before reverting, in case a recipe step also edited the root build file.
 
 - <https://docs.openrewrite.org/recipes/java/spring/boot4/upgradespringboot_4_0-community-edition>
 - <https://github.com/openrewrite/rewrite-spring/blob/main/src/main/resources/META-INF/rewrite/spring-boot-40.yml>
+- <https://github.com/openrewrite/rewrite-spring/blob/main/src/main/resources/META-INF/rewrite/spring-framework-70.yml>
+- <https://github.com/openrewrite/rewrite-jackson/blob/main/src/main/resources/META-INF/rewrite/jackson-2-3.yml>
 - <https://docs.openrewrite.org/recipes/java/spring/boot4/migratetomodularstarters-community-edition>
 - <https://docs.openrewrite.org/recipes/java/jackson/upgradejackson_2_3>
 - <https://docs.openrewrite.org/reference/latest-versions-of-every-openrewrite-module>

@@ -29,41 +29,34 @@ matrix, credential setup and rollback. Read it before running anything.
 - Deciding whether an upgrade is even possible yet — the blocker check below is
   worth running on its own, before committing to the work.
 
-## One-time setup: recipe artifacts
+## Recipe artifacts — no credential needed today
 
-OpenRewrite recipes are moving off Maven Central to the **Code Genome Project**.
-`rewrite-spring:6.37.1` still resolves from Maven Central today, but newer
-releases will not, and `https://artifacts.codegenomeproject.org/maven` rejects
-unauthenticated requests. **Both paths below need this configured**, so do it
-once and stop guessing.
+OpenRewrite recipes are **moving** off Maven Central to the Code Genome Project.
+They have not moved. As of 2026-08-21 Maven Central serves
+`rewrite-spring:6.37.1` — the same latest release the OpenRewrite version table
+lists — so **both paths below work with no credential at all.** Path B pins that
+version and lists `mavenCentral()`; it resolves as written.
 
-1. Get credentials from Moderne — not by signing up yourself; the entitlement is
-   attached to the Moderne-provided identity. You need a username and a
-   **download token**, used as an HTTP Basic password.
-2. Store them in `~/workspace/simonjamesrowe/env` as **`CODE_GENOME_USERNAME`**
-   and **`CODE_GENOME_TOKEN`**. Never inline a value, never echo one, never let
-   one reach a build file.
-3. Point the CLI at the repository and install the recipe artifact:
+Skip this section until you need a release newer than Central carries. The
+credential comes **from Moderne**, not from an account you create, so it may
+simply be unavailable to you — another reason not to gate an upgrade on it. When
+you do have one, store the username and download token in
+`~/workspace/simonjamesrowe/env` as **`CODE_GENOME_USERNAME`** and
+**`CODE_GENOME_TOKEN`** — never inline a value, never echo one — and then:
 
-   ```bash
-   mod config recipes artifacts maven add https://artifacts.codegenomeproject.org/maven \
-     --user "$CODE_GENOME_USERNAME" --password "$CODE_GENOME_TOKEN"
-   mod config recipes jar install org.openrewrite.recipe:rewrite-spring:LATEST
-   ```
+```bash
+mod config recipes artifacts maven add https://artifacts.codegenomeproject.org/maven \
+  --user "$CODE_GENOME_USERNAME" --password "$CODE_GENOME_TOKEN"
+mod config recipes jar install org.openrewrite.recipe:rewrite-spring:LATEST
+mod config recipes artifacts show   # read-only: confirms the URL took
+mod config recipes list             # read-only: confirms the recipes landed
+```
 
-4. Verify, read-only:
-
-   ```bash
-   mod config recipes artifacts show   # should print the Code Genome URL
-   mod config recipes list             # should list rewrite-spring
-   mod config moderne show             # tenant status
-   ```
-
-`mod config recipes --help` states that `mod config moderne` must be configured
-first. On this machine `mod config moderne show` currently reports *"There is no
-currently configured Moderne tenant"* — the `recipes artifacts` subtree still
-answers without one, but `mod config recipes moderne install|sync` will not.
-Run `mod config moderne login` (or `mod config moderne edit`) if you need those.
+`mod config recipes --help` says `mod config moderne` must be configured first,
+and on this machine `mod config moderne show` reports no tenant. The
+`recipes artifacts` subtree answers anyway; `mod config recipes moderne
+install|sync` will not until `mod config moderne login`. Full detail, including
+the Gradle-side credentialed repository block, is in the reference file.
 
 If Moderne agent tools are not yet registered, install them **per agent** —
 `mod config agent-tools claude install`. Do not run the blanket
@@ -105,18 +98,24 @@ Work the blocker matrix in the reference file. As of 2026-08-21, against Boot
 | --- | --- | --- | --- |
 | Java | 21 | 17 | fine |
 | Gradle wrapper | 8.13 | 8.14 | recipe bumps it |
-| Spring AI | 1.1.8 | **2.0.0** | available |
+| Spring AI | 1.1.8 | **2.0.1** | available — **but check per artifact** |
 | Embabel | 0.3.5 | **1.5.0** | available, but a 0.x → 1.x jump |
 | Mongock | 5.5.1 | **nothing published** | **unresolved — the real risk** |
 | CycloneDX plugin | 2.1.0 | 3.0.0 | manual bump, no recipe |
 
-Mongock 5.5.1 is its latest release and its POMs upper-bound Spring Framework at
-`[6.0.0-RC2, 7.0.0)` and Spring Boot at `[3.0.0-RC1, 4.0.0)` — Boot 4 is
-explicitly outside the declared range and there is no `mongock-springboot-v4`
-artifact. Every class it actually references does still exist in Boot 4.0.8 and
-Spring Data MongoDB 5.0.7, so it may well run — but "may well run" is not good
-enough for the mechanism every production data change ships through. The
-reference file has the evidence, the exact test that settles it, and the
+**Spring AI needs artifact-level checking.** Three of the five modules the
+backend declares have a clean `2.0.1`; two do not.
+`spring-ai-advisors-vector-store` was **renamed** to
+`spring-ai-vector-store-advisor`, and `spring-ai-starter-model-openai-sdk` has
+**no 2.0 GA under any name** (its 2.0 line stopped at `2.0.0-M4`). Bumping
+`springAi` blind fails resolution on both. Per-artifact table in the reference.
+
+Mongock 5.5.1 is its latest release; its POMs upper-bound Boot at
+`[3.0.0-RC1, 4.0.0)` and Spring Framework at `[6.0.0-RC2, 7.0.0)`, and no
+`mongock-springboot-v4` exists. Every class it references *does* still exist in
+Boot 4.0.8 and Spring Data MongoDB 5.0.7, so it may well run — but "may well
+run" is not good enough for the mechanism every production data change ships
+through. The reference file has the evidence, the test that settles it, and the
 fallbacks.
 
 **If a blocker is unresolved, stop and report it. Do not run the recipe.** A
@@ -124,55 +123,51 @@ fallbacks.
 
 ## Path A — Moderne MCP server (default)
 
+**Treat the first run as exploratory.** This procedure comes from the recipe's
+published definition and artifact, not from a completed run on this repo — the
+recipe ID, chain and empty option list are verified, its behaviour *here* is not.
+Prefer Path B's `rewriteDryRun` for the first pass, and report what you saw
+rather than what should have happened.
+
 1. **Wait for the model to be built.** Check `lst_status` and `build_status`
    first. The MCP server builds LSTs in the background and must be started from
    inside a git repository; a recipe run against a partially built LST silently
    under-applies rather than failing.
-2. **Confirm the recipe exists**: `search_recipes` for `UpgradeSpringBoot_4_0`.
+2. **Find the recipe through the catalogue**, do not type a name from memory:
+   `edit_code` with a natural-language outcome ("migrate to Spring Boot 4"). It
+   returns ranked recipe names with a `recipeCount`.
 3. **Read its options**: `learn_recipe` on
    `org.openrewrite.java.spring.boot4.UpgradeSpringBoot_4_0`. It currently takes
-   none — confirm that rather than assuming it.
+   none — confirm that rather than assuming it, and read the sub-recipe count:
+   this composite chains roughly thirty.
 4. **Run it**: `run_recipe` with
-   `org.openrewrite.java.spring.boot4.UpgradeSpringBoot_4_0`.
-5. **Size the change before reading it**:
+   `org.openrewrite.java.spring.boot4.UpgradeSpringBoot_4_0`. The result's
+   `filesChanged` is your first signal; a result with `searchResults` and a
+   `matchCount` instead means you picked a search-only variant.
+5. **See which sub-recipes actually fired**, rather than inferring it from the
+   diff — `query_datatable` against `SourcesFileResults`.
+6. **Size the change before reading it**:
 
    ```bash
    git diff --stat
    ```
 
-   Then review by area — build files, then config, then test annotations, then
-   production Java.
+   Then review by area — build files, then config, then JUnit and Jackson churn
+   (the two biggest), then production Java.
+
 
 ## Path B — OpenRewrite Gradle plugin (fallback)
 
 For a machine without the `mod` CLI. This edits build files temporarily; the
 edit must not reach a commit.
 
-Add to the root `build.gradle.kts`:
+Add to the root `build.gradle.kts` — `mavenCentral()` is sufficient for 6.37.1;
+the reference file has the credentialed Code Genome variant:
 
 ```kotlin
-plugins {
-  id("org.openrewrite.rewrite") version "7.39.0"
-}
-
-repositories {
-  mavenCentral()
-  maven {
-    url = uri("https://artifacts.codegenomeproject.org/maven")
-    credentials {
-      username = System.getenv("CODE_GENOME_USERNAME")
-      password = System.getenv("CODE_GENOME_TOKEN")
-    }
-  }
-}
-
-dependencies {
-  rewrite("org.openrewrite.recipe:rewrite-spring:6.37.1")
-}
-
-rewrite {
-  activeRecipe("org.openrewrite.java.spring.boot4.UpgradeSpringBoot_4_0")
-}
+plugins { id("org.openrewrite.rewrite") version "7.39.0" }
+dependencies { rewrite("org.openrewrite.recipe:rewrite-spring:6.37.1") }
+rewrite { activeRecipe("org.openrewrite.java.spring.boot4.UpgradeSpringBoot_4_0") }
 ```
 
 Then:
@@ -182,25 +177,43 @@ Then:
 ./gradlew rewriteRun
 ```
 
-Afterwards, **revert the scaffolding** so the plugin block, the `rewrite`
-dependency and the Code Genome repository never land in a commit:
+The scaffolding must not land in a commit — but **do not blanket-revert the root
+build file.** The recipe edits it too: it declares
+`id("org.springframework.boot") … apply false`, `io.spring.dependency-management`
+and the cyclonedx/sonarqube aliases, all reachable by the chain's
+`UpgradePluginVersion` steps. The diff will hold your scaffolding *and* a real
+plugin bump, and `git checkout --` throws the bump away. Either:
 
 ```bash
-git diff -- build.gradle.kts        # confirm only your scaffolding is there
-git checkout -- build.gradle.kts
+git diff -- build.gradle.kts      # expect scaffolding AND a plugin bump
+# Option 1: delete the plugin block / rewrite dependency / rewrite {} block by hand.
+# Option 2: stage the recipe's hunks, then discard the rest:
+git add -p build.gradle.kts
+git checkout -- build.gradle.kts  # only drops what you did not stage
 ```
 
-Credentials come from the environment. Do not write a username or token into a
-build file, a `gradle.properties`, or a comment.
+Never write a username or token into a build file, a `gradle.properties`, or a
+comment.
 
 ## Manual checklist after the recipe
 
 Each of these is in the reference file with a source link:
 
-- **Jackson 3.** Boot 4 manages Jackson `3.1.5`; `com.fasterxml.jackson` becomes
-  `tools.jackson`, except `jackson-annotations`, which does not move. The Boot
-  recipe does **not** migrate Jackson Java code — run
-  `org.openrewrite.java.jackson.UpgradeJackson_2_3` afterwards.
+- **Jackson 3 — the recipe already did your source. Review it, do not redo it.**
+  `UpgradeSpringBoot_4_0` → `UpgradeSpringFramework_7_0` chains
+  `org.openrewrite.java.jackson.UpgradeJackson_2_3`, and `rewrite-spring`
+  declares `rewrite-jackson:1.29.0` at **`runtime`** scope, so it is on the
+  classpath by default — including under Path B, which only names
+  `rewrite-spring`. Expect `com.fasterxml.jackson` → `tools.jackson` imports and
+  `IOException` → `JacksonException` catch rewrites in the diff; that is the
+  recipe working, not over-applying. **Running `UpgradeJackson_2_3` again is a
+  double migration.** What to check: the three annotation-only imports
+  (`JsonProperty`, `JsonInclude`, `JsonIgnoreProperties`) must **not** have
+  moved — `jackson-annotations` keeps the `com.fasterxml.jackson.core` groupId.
+- **JUnit 5 → 6, Spring Kafka 4.0 and JSpecify annotations** also come in through
+  `UpgradeSpringFramework_7_0`. Boot 4.0.8 manages `junit-jupiter` 6.0.3, so
+  across ~74 test classes JUnit is one of the largest parts of the diff. Nothing
+  to do — but know it is coming before you read the diff.
 - **Modular starters.** `spring-boot-starter-web` → `spring-boot-starter-webmvc`,
   `spring-boot-starter-oauth2-resource-server` →
   `spring-boot-starter-security-oauth2-resource-server`, `spring-kafka` →
@@ -211,9 +224,12 @@ Each of these is in the reference file with a source link:
   `@MockitoSpyBean`. The backend already migrated, so expect a no-op.
 - **Gradle wrapper** must end up at 8.14+ or 9.x; **CycloneDX plugin** at 3.0.0+,
   which no recipe does for you.
-- **Spring AI 2.0 and Embabel 1.5.0** both target Boot **4.1.x**, while the
-  recipe pins Boot `4.0.x`. Reconcile deliberately; landing on 4.1.1 is likely
-  the right call.
+- **Boot 4.0.x or 4.1.1 is an open decision.** The recipe pins `4.0.x`; Spring
+  AI 2.0.1 and Embabel 1.5.0 *declare* `4.1.x` deps, which a consuming BOM
+  manages back down — they do not pull Boot 4.1 in. There is no 4.1 recipe, so
+  4.1.1 means a separate hand-bump after the run. The reference file has the
+  trade-off table and the `./gradlew :backend:dependencies` check that settles
+  what actually resolved.
 - **`repo.embabel.com`** in `backend/build.gradle.kts` is no longer needed —
   Embabel publishes to Maven Central.
 - Runtime config the recipe cannot see: `logback-spring.xml`, our own
@@ -242,7 +258,8 @@ people and the 0.78 coverage floor. Then:
   autoconfiguration, a bean that no longer exists, a property that was renamed.
 
 **Do not claim the upgrade works before test output has been seen.** Not "should
-pass", not "the recipe handled it" — the actual output.
+pass", not "the recipe handled it" — the actual output. The same standard applies
+to the recipe run itself: nobody has completed one on this repo yet.
 
 ## Gotchas
 
@@ -252,9 +269,9 @@ pass", not "the recipe handled it" — the actual output.
 - **Recipes are per-repository, not per-module.** The recipe rewrites
   `reviewer/build.gradle.kts` alongside `backend/`. The frontend is untouched —
   it is not on the JVM LST at all.
-- **Review a large `rewriteRun` in chunks.** Forty changed files reviewed as one
-  blob is not reviewed. Read build files, then config, then test annotations,
-  then production Java, and `git add -p` if that helps hold the line.
+- **Review a large `rewriteRun` in chunks.** Reviewed as one blob is not
+  reviewed. Build files, then config, then the JUnit 5→6 and Jackson 2→3 churn,
+  then production Java; `git add -p` helps hold the line.
 - **`UP-TO-DATE` is a lie after a recipe run.** Gradle caches aggressively and
   the recipe changed inputs it does not track well: add `--rerun-tasks`, or
   `cleanTest` for the test task, when a task is skipped.
@@ -264,8 +281,9 @@ pass", not "the recipe handled it" — the actual output.
   matrix first rather than debugging resolution backwards.
 - **`Testcontainers2Migration` moves you to Testcontainers 2.x** — a major jump
   from the pinned 1.20.4. Delete the catalogue pin so the Boot BOM manages it.
-- **Boot 4.0 vs 4.1.** The recipe pins `4.0.x`; the AI stack wants `4.1.x`.
-  Decide before running, not after the dependency report argues with you.
+- **A version-level "it's available" is not a check.** Spring AI 2.0.1 exists and
+  still breaks resolution: one module was renamed, one has no 2.0 GA. Check
+  artifacts, not version lines.
 - **The `:reviewer:` module's Temporal starter** still references a Boot class
   removed in 4.0. Upgrading `:backend:` alone first is a legitimate strategy.
 
