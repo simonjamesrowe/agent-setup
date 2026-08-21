@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { provisionPlugins, findPlugin } = require('../lib/provisioners/plugins.js');
+const { provisionPlugins, findPlugin, moderneAuthStatus } = require('../lib/provisioners/plugins.js');
 
 function byItem(results) {
   return Object.fromEntries(results.map((r) => [r.item, r]));
@@ -155,4 +155,134 @@ test('declined install prompt -> skipped with declined note, no install calls', 
   assert.strictEqual(r['spring-tools'].status, 'skipped');
   assert.strictEqual(r['spring-tools'].note, 'declined');
   assert.ok(!calls.some((c) => c.includes('plugin install') || c.includes('plugin enable') || c.includes('marketplace add') || c.includes('uv ')));
+});
+
+const claudeOnly = [{ key: 'claude' }];
+const allThree = [{ key: 'claude' }, { key: 'gemini' }, { key: 'codex' }];
+
+// Baseline fake: superpowers/spring-tools/speckit all already present, so the only rows that
+// move in these tests are moderne's. `moderneInstalled` controls `mod --version`;
+// `mcpRegistered` controls whether the agent already has the moderne MCP server.
+function moderneExec({ moderneInstalled, mcpRegistered, hasBrew = true, calls = [], failAt = null }) {
+  return (bin, args) => {
+    const line = [bin, ...args].join(' ');
+    calls.push(line);
+    if (failAt && line.includes(failAt)) return { status: 1, stdout: '', stderr: 'boom' };
+    if (bin === 'claude' && args[0] === 'plugin' && args[1] === 'list') {
+      return {
+        status: 0,
+        stdout: pluginListJson([
+          { id: 'superpowers@claude-plugins-official', enabled: true },
+          { id: 'spring-tools@spring-tools-marketplace', enabled: true },
+        ]),
+        stderr: '',
+      };
+    }
+    if (bin === 'specify' && args[0] === '--version') return { status: 0, stdout: 'specify 0.1.0', stderr: '' };
+    if (bin === 'mod' && args[0] === '--version') {
+      return moderneInstalled ? { status: 0, stdout: 'mod 3.0.0', stderr: '' } : { status: 1, stdout: '', stderr: 'command not found' };
+    }
+    if (bin === 'brew' && args[0] === '--version') {
+      return hasBrew ? { status: 0, stdout: 'Homebrew 4.0.0', stderr: '' } : { status: 1, stdout: '', stderr: 'command not found' };
+    }
+    if (args[0] === 'mcp' && args[1] === 'get') {
+      return mcpRegistered ? { status: 0, stdout: 'moderne\n  Scope: User config\n', stderr: '' } : { status: 1, stdout: '', stderr: 'not found' };
+    }
+    return { status: 0, stdout: 'ok', stderr: '' };
+  };
+}
+
+test('moderne: cli present and mcp registered -> unchanged, no install calls', async () => {
+  const calls = [];
+  const exec = moderneExec({ moderneInstalled: true, mcpRegistered: true, calls });
+  const results = await provisionPlugins({ exec, check: false, yes: true, prompt: async () => true, adapters: claudeOnly });
+  const r = byItem(results);
+  assert.strictEqual(r.moderne.status, 'unchanged');
+  assert.ok(!calls.some((c) => c.includes('brew install') || c.includes('agent-tools install')));
+});
+
+test('moderne: cli absent -> brew install then agent-tools install, reports installed', async () => {
+  const calls = [];
+  const exec = moderneExec({ moderneInstalled: false, mcpRegistered: false, calls });
+  const results = await provisionPlugins({ exec, check: false, yes: true, prompt: async () => true, adapters: claudeOnly });
+  const r = byItem(results);
+  assert.strictEqual(r.moderne.status, 'installed');
+  assert.ok(calls.includes('brew install moderneinc/moderne/mod'));
+  assert.ok(calls.includes('mod config agent-tools install'));
+});
+
+test('moderne: cli present but mcp not registered -> only runs agent-tools install', async () => {
+  const calls = [];
+  const exec = moderneExec({ moderneInstalled: true, mcpRegistered: false, calls });
+  const results = await provisionPlugins({ exec, check: false, yes: true, prompt: async () => true, adapters: claudeOnly });
+  const r = byItem(results);
+  assert.strictEqual(r.moderne.status, 'installed');
+  assert.ok(!calls.includes('brew install moderneinc/moderne/mod'));
+  assert.ok(calls.includes('mod config agent-tools install'));
+});
+
+test('moderne: no homebrew -> skipped with actionable note, never runs brew install', async () => {
+  const calls = [];
+  const exec = moderneExec({ moderneInstalled: false, mcpRegistered: false, hasBrew: false, calls });
+  const results = await provisionPlugins({ exec, check: false, yes: true, prompt: async () => true, adapters: claudeOnly });
+  const r = byItem(results);
+  assert.strictEqual(r.moderne.status, 'skipped');
+  assert.match(r.moderne.note, /brew\.sh/);
+  assert.ok(!calls.some((c) => c.includes('brew install')));
+});
+
+test('moderne: gemini is reported unsupported and never provisioned', async () => {
+  const exec = moderneExec({ moderneInstalled: true, mcpRegistered: true });
+  const results = await provisionPlugins({ exec, check: false, yes: true, prompt: async () => true, adapters: allThree });
+  const moderneRows = results.filter((r) => r.item === 'moderne');
+  const gemini = moderneRows.find((r) => r.tool === 'gemini');
+  assert.strictEqual(gemini.status, 'skipped');
+  assert.match(gemini.note, /not supported/i);
+  assert.deepStrictEqual(moderneRows.filter((r) => r.tool !== 'gemini').map((r) => r.status), ['unchanged', 'unchanged']);
+});
+
+test('moderne: no adapters -> skipped, never execs mod or brew', async () => {
+  const calls = [];
+  const exec = moderneExec({ moderneInstalled: false, mcpRegistered: false, calls });
+  const results = await provisionPlugins({ exec, check: false, yes: true, prompt: async () => true, adapters: [] });
+  const r = byItem(results);
+  assert.strictEqual(r.moderne.status, 'skipped');
+  assert.match(r.moderne.note, /no supported agent/i);
+  assert.ok(!calls.some((c) => c.startsWith('mod ') || c.startsWith('brew ')));
+});
+
+test('moderne: check mode reports missing and never installs', async () => {
+  const calls = [];
+  const exec = moderneExec({ moderneInstalled: false, mcpRegistered: false, calls });
+  const results = await provisionPlugins({ exec, check: true, yes: false, prompt: async () => { throw new Error('must never prompt in check mode'); }, adapters: claudeOnly });
+  const r = byItem(results);
+  assert.strictEqual(r.moderne.status, 'missing');
+  assert.ok(!calls.some((c) => c.includes('brew install') || c.includes('agent-tools install')));
+});
+
+test('moderne: declined prompt -> skipped with declined note', async () => {
+  const calls = [];
+  const exec = moderneExec({ moderneInstalled: false, mcpRegistered: false, calls });
+  const results = await provisionPlugins({ exec, check: false, yes: false, prompt: async () => false, adapters: claudeOnly });
+  const r = byItem(results);
+  assert.strictEqual(r.moderne.status, 'skipped');
+  assert.strictEqual(r.moderne.note, 'declined');
+  assert.ok(!calls.some((c) => c.includes('brew install') || c.includes('agent-tools install')));
+});
+
+test('moderne: failing install step -> failed with stderr in the note', async () => {
+  const exec = moderneExec({ moderneInstalled: false, mcpRegistered: false, failAt: 'brew install' });
+  const results = await provisionPlugins({ exec, check: false, yes: true, prompt: async () => true, adapters: claudeOnly });
+  const r = byItem(results);
+  assert.strictEqual(r.moderne.status, 'failed');
+  assert.strictEqual(r.moderne.note, 'boom');
+});
+
+test('moderneAuthStatus: configured when the status command succeeds with output', () => {
+  const configured = moderneAuthStatus(() => ({ status: 0, stdout: 'https://app.moderne.io  user@example.com\n', stderr: '' }));
+  assert.strictEqual(configured.configured, true);
+  const empty = moderneAuthStatus(() => ({ status: 0, stdout: '   \n', stderr: '' }));
+  assert.strictEqual(empty.configured, false);
+  const failed = moderneAuthStatus(() => ({ status: 1, stdout: '', stderr: 'not configured' }));
+  assert.strictEqual(failed.configured, false);
 });
