@@ -36,44 +36,143 @@ for Embabel's own documentation corpus.
 ## Prerequisites
 
 - Docker running, with `docker compose` v2 available.
+- A JDK to build the jar with. The `pom` targets `java.version` 21 and the
+  build below ran on a local Temurin 21.
 - A free host port `1337` (the default MCP port — see Gotchas for Conductor
-  port contention).
-- Neo4j, which the compose file brings up for you (see First run below) — no
+  port contention), plus Neo4j's `7474`/`7687`/`7473`.
+- Neo4j, which the compose file brings up for you (see First run) — no
   separate Neo4j install needed for the Docker path.
-- An LLM API key, exported as one of `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
-  `MISTRAL_API_KEY` or `DEEPSEEK_API_KEY` (the server auto-detects whichever
-  is set, checked in that order). Source the value from
+- An LLM API key for anything needing a completion, exported as one of
+  `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY` or
+  `DEEPSEEK_API_KEY` (auto-detected in that order). Source the value from
   `~/workspace/simonjamesrowe/env` — never inline the key itself, in a
-  command, a compose `.env` file committed to a repo, or this skill.
+  command, a committed compose `.env`, or this skill. It is *not* needed to
+  start the server or to ingest and search the corpus; see Health check.
 
 ## First run
 
-```bash
-git clone https://github.com/embabel/guide.git ~/workspace/embabel/guide
-# or: cd ~/workspace/embabel/guide && git pull
+Three steps, in this order. None of them can be skipped.
 
-cd ~/workspace/embabel/guide
-export OPENAI_API_KEY="$(grep '^OPENAI_API_KEY=' ~/workspace/simonjamesrowe/env | cut -d= -f2-)"
-docker compose --profile java up --build -d
+```bash
+# 1. Clone. Any directory works; ~/workspace/<org>/<repo> is the house layout,
+#    and `git clone` creates the parent directories for you.
+git clone https://github.com/embabel/guide.git ~/workspace/embabel/guide
+cd ~/workspace/embabel/guide   # already cloned? just `git pull` here
+
+# 2. Build the jar. The Dockerfile does NOT compile anything — see below.
+./mvnw -B -DskipTests package
+cp target/guide-0.1.0-SNAPSHOT.jar guide-app.jar
+
+# 3. Start Neo4j and guide. BOTH profiles are required — see below.
+docker compose --profile neo4j --profile java up --build -d
 ```
 
-That one command starts both `neo4j` and `guide` (the Java application) —
-`guide` depends on `neo4j` reaching a healthy state, so compose brings it up
-first even though the two live in different compose profiles. First build
-compiles the app from source inside the container (multi-stage Maven build),
-so expect roughly 2-3 minutes before `guide` is even listening; after that,
-the docs corpus itself takes further time to index (see Health check).
+**Both profiles, always.** `guide` lives in compose profile `java` and
+`neo4j` lives in profile `neo4j`, and compose does not enable a dependency's
+profile for you. With `--profile java` alone every compose verb — `config`,
+`up` and `down` alike — fails before starting anything:
 
-If port `1337` is taken, override it: `GUIDE_PORT=1338 docker compose
---profile java up --build -d` — the MCP endpoint then becomes
-`http://localhost:1338/sse`.
+```
+service "guide" depends on undefined service "neo4j": invalid compose project
+```
 
-Only `OPENAI_API_KEY` is wired through the compose file's `guide` service
-environment block today. If you're using one of the other three providers,
-confirm your key actually reaches the container (`docker compose exec guide
-env | grep API_KEY`) rather than assuming compose passed it through — the
-`.env.example` documents all four, but the container environment mapping in
-`compose.yaml` currently only lists `OPENAI_API_KEY`.
+With both profiles the ordering is what you'd want: `neo4j` Started →
+Healthy, then `guide` Started.
+
+**The jar is not optional.** `--build` cannot work from a fresh clone on its
+own. The `Dockerfile` has a single `FROM eclipse-temurin:25-jre-jammy`, a
+header comment reading "Expects guide-app.jar to be pre-built and placed in
+this directory", and `COPY guide-app.jar app.jar`. There is no Maven stage in
+it, so without step 2 the build dies at that COPY. Upstream's README still
+describes a multi-stage build that compiles in-container — that text is
+stale; the `Dockerfile` in the repo is what actually runs. `.dockerignore`
+excludes `target/`, which is why the jar has to be *copied* to the
+build-context root rather than referenced where Maven left it; both
+`guide-app.jar` and `target/` are gitignored, so the clone stays clean. The
+runtime image is Temurin 25 because the `ENTRYPOINT` passes JDK 25-only
+flags; the jar itself is Java 21 bytecode and runs on any 21+ JRE.
+
+**Expect the first run to be slow.** Timings from one cold-Docker-cache run
+on an arm64 Mac:
+
+- `./mvnw -B -DskipTests package` — about 10 seconds, but on an already-warm
+  `~/.m2` and `~/.gradle`. A cold Maven cache must first fetch a large
+  dependency tree from Maven Central and `repo.embabel.com` (anonymous, no
+  credentials). That cost was **not measured here** — assume minutes.
+- `docker compose ... up --build -d` — 14m12s wall clock, nearly all of it
+  network: the Neo4j image pull, then the image build (base image 124s,
+  `apt-get install curl` 64s, the ONNX embedding-model download 112s, the
+  jar COPY 1s).
+- `guide` then logged `Started GuideApplication in 72.4 seconds`.
+
+On that run `guide` crashed twice before starting on the third attempt: it
+clones the reference repositories listed in `references.yml` during context
+startup, and two of those clones failed with `SSLHandshakeException: Remote
+host terminated the handshake` — a single failed clone aborts the whole
+application context. The service is `restart: unless-stopped`, so it retried
+itself and came up about 3.5 minutes after `up` returned, with no
+intervention. Don't read the first stack trace as a broken install.
+
+If port `1337` is taken, compose maps `${GUIDE_PORT:-1337}:1337`, so
+`GUIDE_PORT=1338 docker compose --profile neo4j --profile java up --build -d`
+should move the endpoint to `http://localhost:1338/sse`. (Read from
+`compose.yaml`; **not exercised here**.)
+
+**Checking the LLM key reached the container.** Only `OPENAI_API_KEY` is
+wired into the `guide` service's environment block, even though
+`.env.example` documents four. Confirm what actually landed:
+
+```bash
+docker compose exec guide env | grep API_KEY
+```
+
+This works, and — unlike `up`/`down`/`config` — works without the profile
+flags. On this run, with no key set anywhere, it printed exactly one line,
+`OPENAI_API_KEY=` with an empty value: compose sets that variable whether or
+not you exported it, and the other three provider keys never reach the
+container at all. If you rely on a provider other than OpenAI, this is the
+check that tells you your key never arrived.
+
+To supply a key, export it from the env file before step 3:
+
+```bash
+export OPENAI_API_KEY="$(grep '^OPENAI_API_KEY=' ~/workspace/simonjamesrowe/env | cut -d= -f2-)"
+```
+
+**Unverified:** this run was deliberately done with no key at all, so the
+export line above is documented from the env-file convention but was not
+exercised.
+
+## Ingesting the docs corpus
+
+A freshly-started stack has *nothing in it*. `guide.reload-content-on-startup`
+is `false` in `application.yml`, the compose `guide` service does not override
+it, and the compose path ships no seeded database — so no ingestion happens at
+boot. Straight after `up`:
+
+```bash
+curl -s http://localhost:1337/api/v1/data/stats
+# {"chunkCount":0,"documentCount":0,"contentElementCount":0,...}
+```
+
+and an MCP vector-search call against that server returned `0 results:`.
+
+Ingestion is a separate, explicit step:
+
+```bash
+curl -X POST http://localhost:1337/api/v1/data/load-references
+```
+
+That returned HTTP 200 after 74.5 seconds with the list of URLs it loaded,
+after which the same stats call read
+`{"chunkCount":1712,"documentCount":23,"contentElementCount":2892,...}` and
+vector search returned real, scored, relevant chunks. It needs **no LLM API
+key** — chunk embedding uses the local ONNX `all-MiniLM-L6-v2` model baked
+into the image at build time.
+
+`./scripts/fresh-ingest.sh` wipes and re-ingests, but runs the app on your
+host through `./mvnw` rather than in the container, so it is not the tool for
+the Docker path. (Read from the script; **not run here**.)
 
 ## Health check
 
@@ -81,16 +180,35 @@ env | grep API_KEY`) rather than assuming compose passed it through — the
 curl -i --max-time 3 http://localhost:1337/sse
 ```
 
-Look for `Content-Type: text/event-stream` and an `event:endpoint` line in
-the response — that means the MCP server is up and serving. A connection
-refused or timeout means the container isn't listening yet (still building)
-or crashed; check `docker compose logs -f guide`.
+Verified response: `HTTP/1.1 200`, `Content-Type: text/event-stream`, and an
+`event:endpoint` line carrying a `sessionId`. **`curl` then exits 28,
+"Operation timed out" — and that is the success case, not a failure.** `/sse`
+is a long-lived stream, so `--max-time` always cuts it off after the headers
+have already printed. Judge the headers, not the exit code.
 
-"Up" is not the same as "fully indexed". A server that answers `/sse` but
-has just started can still return thin, low-quality RAG results on the
-first few queries while it finishes indexing the documentation corpus
-against Neo4j. If early answers look sparse, wait a bit and retry before
-concluding something is broken — see Gotchas.
+Two failure shapes worth telling apart:
+
+- `curl: (52) Empty reply from server` — Docker has published port `1337` but
+  the JVM behind it isn't listening yet. This is what the first minute after
+  `up` looks like, and what a restarting container looks like — *not*
+  connection refused. Check `docker compose logs -f guide`.
+- A healthy `200` but `chunkCount: 0` from `/api/v1/data/stats` — the server
+  is fine and has nothing to search. See Ingesting the docs corpus.
+
+**Running without an LLM key is a real, usable state.** With no key set, the
+app started normally and logged its available models as:
+
+```
+Available LLMs:
+	name: setup-required, provider: none
+	name: all-MiniLM-L6-v2, provider: onnx
+```
+
+Retrieval still worked in that state — the MCP tool list came back with all
+ten tools and vector search returned scored chunks, on local embeddings
+alone. What you don't get is anything needing a completion. If searches
+return content but written answers never arrive, check the key before
+suspecting the corpus.
 
 ## Registering the MCP server
 
@@ -105,28 +223,45 @@ npx @simonjamesrowe/agent-setup --with embabel-guide
 That registers, at user scope, for each detected coding agent:
 
 ```
-npx mcp-remote http://localhost:1337/sse --transport sse-only
+npx -y mcp-remote http://localhost:1337/sse --transport sse-only
 ```
+
+The `-y` is load-bearing: without it npx can stop to confirm the `mcp-remote`
+install, and an MCP client launching this over non-TTY stdio can never answer
+that prompt — the server just fails to start, looking like a `guide` fault.
+Upstream's own documented client configs all use the `-y` form.
 
 `mcp-remote` is a stdio bridge: it's what lets an agent that only speaks
 stdio MCP talk to `guide`'s SSE endpoint. Once registered, the tools appear
 under whatever prefix `guide.toolPrefix` is set to in the server's own
-configuration — by default that prefix is empty, so tools keep their
-original names (for example, a documentation vector-search tool shows up
-unprefixed rather than namespaced).
+configuration — it is `@DefaultValue("")`, so by default there is no prefix
+and tools keep their own names. Listing them against the running server
+returned ten, all unprefixed: four `docs_docs_*` retrieval tools
+(`vectorSearch`, `textSearch`, `broadenChunk`, `zoomOut`), three
+`embabel_agent_find*` signature lookups, and three session/utility tools.
 
 ## Shutting down
 
 ```bash
 cd ~/workspace/embabel/guide
-docker compose --profile java down --remove-orphans
+docker compose --profile neo4j --profile java down --remove-orphans
 ```
+
+Both profiles again: `docker compose --profile java down --remove-orphans`
+fails with the same `depends on undefined service "neo4j"` error and tears
+down nothing at all. With both profiles, `guide` and `neo4j` are removed
+along with the `guide_embabel-network` network.
+
+Add `-v` to also drop the four Neo4j volumes compose created
+(`guide_neo4j_data`, `_logs`, `_import`, `_plugins`). Keep them and the
+ingested corpus survives a restart; drop them and you must re-run
+`load-references` after the next `up`.
 
 After this, the MCP server registration you added above is still in place —
 it will simply fail to connect until `guide` is brought back up. That's the
-expected, correct state when you're not actively using it, not a broken
-install. Bring it back with the same `docker compose --profile java up
---build -d` from First run.
+expected, correct state when you're not using it, not a broken install. Bring
+it back with the same `docker compose --profile neo4j --profile java up
+--build -d` from First run; the jar and images already exist, so it is fast.
 
 ## Gotchas
 
@@ -139,10 +274,11 @@ install. Bring it back with the same `docker compose --profile java up
   when the agent starts; if `guide` isn't listening yet, the agent will show
   the server as failed and won't retry on its own. Get `guide` healthy first,
   then start or restart the agent.
-- **Cold Neo4j means thin answers.** The first few queries after a fresh
-  `docker compose --profile java up` can return sparse or low-relevance
-  results while the graph is still indexing — that's expected, not a sign
-  the setup is broken. Recheck after the health check settles.
+- **An empty corpus, not a cold one, is why early answers are thin.** Nothing
+  is ingested at boot on the Docker path, so a freshly-started `guide` returns
+  *zero* results rather than sparse ones. Run
+  `POST /api/v1/data/load-references` and check `chunkCount` before concluding
+  the setup is broken — see Ingesting the docs corpus.
 - **Only `OPENAI_API_KEY` is passed through by the compose file today** —
   see First run. If you're relying on a different provider, verify the key
   actually landed in the container rather than assuming the `.env.example`
