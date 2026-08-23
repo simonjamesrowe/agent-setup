@@ -14,7 +14,8 @@ Flags:
   --yes                 no prompts, accept defaults
   --tools <a,b>         limit to claude,gemini,codex (default: auto-detect)
   --skip <a,b>          skip provisioners: skills,instructions,mcp,plugins
-  --target <dir>        override home directory (testing/CI)
+  --target <dir>        override home directory (testing/CI); force-skips mcp
+                        and plugins, which mutate real tool config regardless
   --with <a,b>          opt in to optional components: embabel-guide
 `;
 

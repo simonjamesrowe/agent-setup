@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { provisionPlugins, findPlugin, moderneAuthStatus } = require('../lib/provisioners/plugins.js');
+const { provisionPlugins, findPlugin, moderneAuthStatus, moderneAuthRow } = require('../lib/provisioners/plugins.js');
+const { exitCode } = require('../lib/report.js');
 
 function byItem(results) {
   return Object.fromEntries(results.map((r) => [r.item, r]));
@@ -416,4 +417,70 @@ test('moderneAuthStatus: configured when the status command succeeds with output
   assert.strictEqual(empty.configured, false);
   const failed = moderneAuthStatus(() => ({ status: 1, stdout: '', stderr: 'not configured' }));
   assert.strictEqual(failed.configured, false);
+});
+
+// Guards the note text, not just the boolean. The note previously asserted that "OpenRewrite
+// recipes resolve from the Code Genome Project and need a token" — a claim this project
+// retracted: recipes resolve from Maven Central with no credential. That regression survived
+// because the test above only ever asserted `.configured`.
+test('moderneAuthStatus: unconfigured note must not claim a credential is required', () => {
+  const { note } = moderneAuthStatus(() => ({ status: 1, stdout: '', stderr: 'not configured' }));
+  assert.match(note, /no Moderne tenant configured/i);
+  assert.match(note, /Maven Central/);
+  assert.match(note, /spring-boot-upgrade/);
+  assert.doesNotMatch(note, /need a token/i);
+  assert.doesNotMatch(note, /recipes resolve from the Code Genome Project/i);
+});
+
+test('moderneAuthRow: unconfigured tenant is optional (never missing, so doctor still exits 0)', () => {
+  const unconfigured = moderneAuthRow(() => ({ status: 1, stdout: '', stderr: 'not configured' }));
+  assert.strictEqual(unconfigured.item, 'moderne auth');
+  assert.strictEqual(unconfigured.status, 'optional');
+  assert.notStrictEqual(unconfigured.status, 'missing');
+  assert.strictEqual(exitCode([unconfigured], { strictMissing: true }), 0);
+
+  const configured = moderneAuthRow(() => ({ status: 0, stdout: 'https://app.moderne.io\n', stderr: '' }));
+  assert.strictEqual(configured.status, 'unchanged');
+  assert.strictEqual(configured.note, undefined);
+});
+
+// Finding 3: `mod` gone but a stale MCP registration left behind. The registration's command is
+// `/opt/homebrew/bin/mod mcp`, so both agents fail to start the server — doctor used to report
+// this as a clean `unchanged` because the check path never consulted `cliPresent`.
+test('moderne: check mode with mod absent but registration present must not report unchanged', async () => {
+  const calls = [];
+  const exec = moderneExec({ moderneInstalled: false, mcpRegistered: true, calls });
+  const results = await provisionPlugins({ exec, check: true, yes: false, prompt: async () => { throw new Error('must never prompt in check mode'); }, adapters: [{ key: 'claude' }, { key: 'codex' }] });
+  const moderneRows = results.filter((r) => r.item === 'moderne');
+  assert.deepStrictEqual(moderneRows.map((r) => r.tool), ['claude', 'codex']);
+  for (const row of moderneRows) {
+    assert.strictEqual(row.status, 'missing', `${row.tool} must not be reported unchanged when mod is absent`);
+    assert.match(row.note, /mod not on PATH/);
+    assert.match(row.note, /cannot start/);
+  }
+  assert.strictEqual(exitCode(moderneRows, { strictMissing: true }), 1);
+  assert.ok(!calls.some((c) => c.includes('brew install') || c.includes('agent-tools install')));
+});
+
+test('moderne: check mode with mod present and registration present stays unchanged and un-noted', async () => {
+  const exec = moderneExec({ moderneInstalled: true, mcpRegistered: true });
+  const results = await provisionPlugins({ exec, check: true, yes: false, prompt: async () => { throw new Error('no prompt'); }, adapters: claudeOnly });
+  const r = byItem(results);
+  assert.strictEqual(r.moderne.status, 'unchanged');
+  assert.strictEqual(r.moderne.note, undefined);
+});
+
+// M9: a gemini-only run already explains itself via the `gemini / skipped / not supported` row;
+// the placeholder `-` row on top of it was redundant noise.
+test('moderne: gemini-only run emits exactly one row, the explanatory one', async () => {
+  const calls = [];
+  const exec = moderneExec({ moderneInstalled: true, mcpRegistered: false, calls });
+  const results = await provisionPlugins({ exec, check: false, yes: true, prompt: async () => true, adapters: [{ key: 'gemini' }], calls });
+  const moderneRows = results.filter((r) => r.item === 'moderne');
+  assert.strictEqual(moderneRows.length, 1);
+  assert.strictEqual(moderneRows[0].tool, 'gemini');
+  assert.strictEqual(moderneRows[0].status, 'skipped');
+  assert.match(moderneRows[0].note, /not supported by mod config agent-tools/);
+  assert.ok(!moderneRows.some((r) => r.tool === '-'));
+  assert.ok(!calls.some((c) => c.startsWith('mod ') || c.startsWith('brew ')));
 });

@@ -43,7 +43,7 @@ test('optional servers register when named in --with', () => {
   };
   const results = provisionMcp({ adapters: claude, exec, check: false, with: ['embabel-guide'] });
   assert.strictEqual(results.find((r) => r.item === 'embabel-guide').status, 'installed');
-  assert.ok(calls.some((c) => c.includes('mcp add --scope user embabel-guide -- npx mcp-remote http://localhost:1337/sse --transport sse-only')));
+  assert.ok(calls.some((c) => c.includes('mcp add --scope user embabel-guide -- npx -y mcp-remote http://localhost:1337/sse --transport sse-only')));
 });
 
 test('adds missing servers, skips present, refuses project-scoped', () => {
