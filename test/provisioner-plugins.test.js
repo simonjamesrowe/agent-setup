@@ -163,8 +163,18 @@ const allThree = [{ key: 'claude' }, { key: 'gemini' }, { key: 'codex' }];
 
 // Baseline fake: superpowers/spring-tools/speckit all already present, so the only rows that
 // move in these tests are moderne's. `moderneInstalled` controls `mod --version`;
-// `mcpRegistered` controls whether the agent already has the moderne MCP server.
-function moderneExec({ moderneInstalled, mcpRegistered, hasBrew = true, calls = [], failAt = null }) {
+// `mcpRegistered` controls whether the agent already has the moderne MCP server, BEFORE any
+// install step runs.
+//
+// Stateful by design: registration is tracked in a `registeredAgents` set, not a fixed flag, so
+// this models what the real `mod` CLI does — `mod config agent-tools <agent> install` is what
+// flips an agent from unregistered to registered, and the provisioner now re-probes after that
+// call rather than trusting its exit code. `noOpInstall: true` simulates the live defect found on
+// this machine: the install command exits 0 and prints its own "not detected" message, but never
+// actually adds the agent to the registered set — exactly what happened with `mod config
+// agent-tools codex install` when mod's detection didn't recognise this machine's Codex install.
+function moderneExec({ moderneInstalled, mcpRegistered, hasBrew = true, calls = [], failAt = null, noOpInstall = false }) {
+  const registeredAgents = new Set();
   return (bin, args) => {
     const line = [bin, ...args].join(' ');
     calls.push(line);
@@ -186,8 +196,13 @@ function moderneExec({ moderneInstalled, mcpRegistered, hasBrew = true, calls = 
     if (bin === 'brew' && args[0] === '--version') {
       return hasBrew ? { status: 0, stdout: 'Homebrew 4.0.0', stderr: '' } : { status: 1, stdout: '', stderr: 'command not found' };
     }
+    if (bin === 'mod' && args[0] === 'config' && args[1] === 'agent-tools' && args[3] === 'install') {
+      if (!noOpInstall) registeredAgents.add(args[2]);
+      return { status: 0, stdout: '', stderr: '' };
+    }
     if (args[0] === 'mcp' && args[1] === 'get') {
-      return mcpRegistered ? { status: 0, stdout: 'moderne\n  Scope: User config\n', stderr: '' } : { status: 1, stdout: '', stderr: 'not found' };
+      const isRegistered = mcpRegistered || registeredAgents.has(bin);
+      return isRegistered ? { status: 0, stdout: 'moderne\n  Scope: User config\n', stderr: '' } : { status: 1, stdout: '', stderr: 'not found' };
     }
     return { status: 0, stdout: 'ok', stderr: '' };
   };
@@ -220,6 +235,25 @@ test('moderne: cli present but mcp not registered -> only runs per-agent agent-t
   const r = byItem(results);
   assert.strictEqual(r.moderne.status, 'installed');
   assert.ok(!calls.includes('brew install moderneinc/moderne/mod'));
+  assert.ok(calls.includes('mod config agent-tools claude install'));
+  assert.ok(!calls.includes('mod config agent-tools install'));
+});
+
+// The live defect this fix targets: `mod config agent-tools claude install` exited 0 (mod's own
+// "MOD SUCCEEDED" behaviour even when it printed "<Agent> was not detected. Nothing to install.")
+// but the agent's own binary still has no `moderne` MCP server registered afterwards. The exit
+// code alone must not be trusted — the row must come from re-probing, and it must be `failed`
+// with a note that names the agent and says mod's detection, not agent-setup, is at fault.
+test('moderne: install step exits 0 but does not register the server -> failed, not installed', async () => {
+  const calls = [];
+  const exec = moderneExec({ moderneInstalled: true, mcpRegistered: false, calls, noOpInstall: true });
+  const results = await provisionPlugins({ exec, check: false, yes: true, prompt: async () => true, adapters: claudeOnly });
+  const r = byItem(results);
+  assert.strictEqual(r.moderne.status, 'failed');
+  assert.match(r.moderne.note, /mod config agent-tools claude install/);
+  assert.match(r.moderne.note, /reported success/);
+  assert.match(r.moderne.note, /did not register the server/);
+  assert.match(r.moderne.note, /mod did not detect this agent/);
   assert.ok(calls.includes('mod config agent-tools claude install'));
   assert.ok(!calls.includes('mod config agent-tools install'));
 });
@@ -291,7 +325,14 @@ test('moderne: failing install step -> failed with stderr in the note', async ()
 // registration state, CLI presence, and Homebrew presence off their defaults; `failAt` makes a
 // specific command line fail (mirrors `moderneExec`'s `failAt`), for exercising per-agent install
 // failure isolation.
-function moderneMixedExec({ calls = [], claudeRegistered = true, moderneInstalled = true, hasBrew = true, failAt = null } = {}) {
+//
+// Stateful, like `moderneExec`: registration lives in a `registeredAgents` set seeded from
+// `claudeRegistered` (codex always starts unregistered here), and a successful `mod config
+// agent-tools <agent> install` call adds that agent to the set — unless the agent is listed in
+// `noOpAgents`, which models the live defect: the install command exits 0 but mod's own
+// detection silently fails to register the agent, so the set is never updated for it.
+function moderneMixedExec({ calls = [], claudeRegistered = true, moderneInstalled = true, hasBrew = true, failAt = null, noOpAgents = [] } = {}) {
+  const registeredAgents = new Set(claudeRegistered ? ['claude'] : []);
   return (bin, args) => {
     const line = [bin, ...args].join(' ');
     calls.push(line);
@@ -313,10 +354,13 @@ function moderneMixedExec({ calls = [], claudeRegistered = true, moderneInstalle
     if (bin === 'brew' && args[0] === '--version') {
       return hasBrew ? { status: 0, stdout: 'Homebrew 4.0.0', stderr: '' } : { status: 1, stdout: '', stderr: 'command not found' };
     }
-    if (bin === 'claude' && args[0] === 'mcp' && args[1] === 'get') {
-      return claudeRegistered ? { status: 0, stdout: 'moderne\n  Scope: User config\n', stderr: '' } : { status: 1, stdout: '', stderr: 'not found' };
+    if (bin === 'mod' && args[0] === 'config' && args[1] === 'agent-tools' && args[3] === 'install') {
+      if (!noOpAgents.includes(args[2])) registeredAgents.add(args[2]);
+      return { status: 0, stdout: '', stderr: '' };
     }
-    if (bin === 'codex' && args[0] === 'mcp' && args[1] === 'get') return { status: 1, stdout: '', stderr: 'not found' };
+    if ((bin === 'claude' || bin === 'codex') && args[0] === 'mcp' && args[1] === 'get') {
+      return registeredAgents.has(bin) ? { status: 0, stdout: 'moderne\n  Scope: User config\n', stderr: '' } : { status: 1, stdout: '', stderr: 'not found' };
+    }
     return { status: 0, stdout: 'ok', stderr: '' };
   };
 }
@@ -367,6 +411,30 @@ test('moderne: per-agent install failure is isolated — a failed claude install
   assert.strictEqual(claude.status, 'failed');
   assert.strictEqual(claude.note, 'boom');
   assert.strictEqual(codex.status, 'installed');
+  assert.ok(calls.includes('mod config agent-tools codex install'));
+});
+
+// Mixed version of the live defect: both agents need installing, claude's install genuinely
+// registers the server, codex's install exits 0 but is a silent no-op (mod's detection gap). A
+// no-op for one agent must not taint the other — claude must still be credited as `installed`,
+// and codex's silent failure must not be reported as success just because the exit code was 0.
+test('moderne: one agent registers, the other silently no-ops -> first installed, second failed, no cross-contamination', async () => {
+  const calls = [];
+  const exec = moderneMixedExec({ calls, claudeRegistered: false, noOpAgents: ['codex'] });
+  const results = await provisionPlugins({
+    exec, check: false, yes: true, prompt: async () => true,
+    adapters: [{ key: 'claude' }, { key: 'codex' }],
+  });
+  const moderneRows = results.filter((r) => r.item === 'moderne');
+  const claude = moderneRows.find((r) => r.tool === 'claude');
+  const codex = moderneRows.find((r) => r.tool === 'codex');
+  assert.strictEqual(claude.status, 'installed');
+  assert.strictEqual(codex.status, 'failed');
+  assert.match(codex.note, /mod config agent-tools codex install/);
+  assert.match(codex.note, /reported success/);
+  assert.match(codex.note, /did not register the server/);
+  assert.match(codex.note, /mod did not detect this agent/);
+  assert.ok(calls.includes('mod config agent-tools claude install'));
   assert.ok(calls.includes('mod config agent-tools codex install'));
 });
 
