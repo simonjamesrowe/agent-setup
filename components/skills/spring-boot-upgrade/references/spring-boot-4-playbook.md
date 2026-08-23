@@ -91,8 +91,10 @@ Read its own definition — `META-INF/rewrite/spring-framework-70.yml` in the sa
 
 So `UpgradeSpringBoot_4_0` transitively performs, with no extra step from you:
 
-- **JUnit 5 → JUnit 6.** Boot 4.0.8 manages `junit-jupiter` 6.0.3. Across ~74
-  backend test classes this is one of the largest parts of the diff.
+- **JUnit 5 → JUnit 6.** Boot 4.0.8 manages `junit-jupiter` 6.0.3. Across the 84
+  files under `backend/src/test` that contain `@Test` (of 88 `.java` files there,
+  85 of them named `*Test.java`/`*Tests.java`) this is one of the largest parts of
+  the diff.
 - **Jackson 2 → Jackson 3 in Java source** — see the next section.
 - **Spring Kafka 4.0** API migration on top of the managed `spring-kafka` 4.0.7.
 - **JSpecify nullability annotations** replacing Spring's own

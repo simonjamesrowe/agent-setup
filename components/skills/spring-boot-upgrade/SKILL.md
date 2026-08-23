@@ -59,7 +59,10 @@ install|sync` will not until `mod config moderne login`. Full detail, including
 the Gradle-side credentialed repository block, is in the reference file.
 
 If Moderne agent tools are not yet registered, install them **per agent** —
-`mod config agent-tools claude install`. Do not run the blanket
+`mod config agent-tools <agent> install`, substituting the agent you are running
+under. Moderne supports `claude` and `codex` here; it has no `gemini` subcommand,
+so under Gemini CLI there is nothing to register and the recipes must be driven
+through the `mod` CLI directly. Do not run the blanket
 `mod config agent-tools install`: it provisions all eight agents it supports and
 writes `.github/instructions/` and `.vscode/mcp.json` into the current working
 directory.
@@ -138,8 +141,10 @@ rather than what should have happened.
    returns ranked recipe names with a `recipeCount`.
 3. **Read its options**: `learn_recipe` on
    `org.openrewrite.java.spring.boot4.UpgradeSpringBoot_4_0`. It currently takes
-   none — confirm that rather than assuming it, and read the sub-recipe count:
-   this composite chains roughly thirty.
+   none — confirm that rather than assuming it, and read the sub-recipe count.
+   For reference, the `recipeList` in `META-INF/rewrite/spring-boot-40.yml` of
+   `rewrite-spring:6.37.1` (identical to `main`) has **41** top-level entries, so
+   a count in that region is the right recipe, not a wrong one.
 4. **Run it**: `run_recipe` with
    `org.openrewrite.java.spring.boot4.UpgradeSpringBoot_4_0`. The result's
    `filesChanged` is your first signal; a result with `searchResults` and a
@@ -212,7 +217,8 @@ Each of these is in the reference file with a source link:
   moved — `jackson-annotations` keeps the `com.fasterxml.jackson.core` groupId.
 - **JUnit 5 → 6, Spring Kafka 4.0 and JSpecify annotations** also come in through
   `UpgradeSpringFramework_7_0`. Boot 4.0.8 manages `junit-jupiter` 6.0.3, so
-  across ~74 test classes JUnit is one of the largest parts of the diff. Nothing
+  across the 84 files under `backend/src/test` that contain `@Test` (of 88 `.java`
+  files there) JUnit is one of the largest parts of the diff. Nothing
   to do — but know it is coming before you read the diff.
 - **Modular starters.** `spring-boot-starter-web` → `spring-boot-starter-webmvc`,
   `spring-boot-starter-oauth2-resource-server` →
