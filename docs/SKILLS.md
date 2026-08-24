@@ -16,6 +16,7 @@ categories, one repo instead of a shared monorepo skills package.
   - `langfuse-` — LLM observability
   - `local-` — local development environment
   - `mongock-` — data migrations
+  - `spring-` — Spring framework and Spring Boot version upgrades
   - A skill that doesn't fit an existing category may introduce a new prefix,
     but check first whether it actually belongs in one of the above.
 - **Prefer a verb at the leaf**, after the category: `prod-deploy`,

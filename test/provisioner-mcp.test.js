@@ -16,7 +16,34 @@ function makeHomeWithGeminiSettings(mcpServers) {
 }
 
 test('server catalog', () => {
-  assert.deepStrictEqual(MCP_SERVERS.map((s) => s.name).sort(), ['excalidraw', 'playwright']);
+  assert.deepStrictEqual(MCP_SERVERS.map((s) => s.name).sort(), ['embabel-guide', 'excalidraw', 'javadocs', 'playwright']);
+  assert.deepStrictEqual(MCP_SERVERS.filter((s) => s.optional).map((s) => s.name), ['embabel-guide']);
+});
+
+test('optional servers are reported optional and never registered unless named in --with', () => {
+  const calls = [];
+  const exec = (bin, args) => {
+    calls.push([bin, ...args].join(' '));
+    if (args[1] === 'get') return { status: 1, stdout: '', stderr: 'not found' };
+    return { status: 0, stdout: 'ok', stderr: '' };
+  };
+  const results = provisionMcp({ adapters: claude, exec, check: false });
+  const embabel = results.find((r) => r.item === 'embabel-guide');
+  assert.strictEqual(embabel.status, 'optional');
+  assert.match(embabel.note, /--with embabel-guide/);
+  assert.ok(!calls.some((c) => c.includes('embabel-guide')), 'must not even check an opted-out server');
+});
+
+test('optional servers register when named in --with', () => {
+  const calls = [];
+  const exec = (bin, args) => {
+    calls.push([bin, ...args].join(' '));
+    if (args[1] === 'get') return { status: 1, stdout: '', stderr: 'not found' };
+    return { status: 0, stdout: 'ok', stderr: '' };
+  };
+  const results = provisionMcp({ adapters: claude, exec, check: false, with: ['embabel-guide'] });
+  assert.strictEqual(results.find((r) => r.item === 'embabel-guide').status, 'installed');
+  assert.ok(calls.some((c) => c.includes('mcp add --scope user embabel-guide -- npx -y mcp-remote http://localhost:1337/sse --transport sse-only')));
 });
 
 test('adds missing servers, skips present, refuses project-scoped', () => {
@@ -40,7 +67,7 @@ test('check mode never calls add', () => {
   const calls = [];
   const exec = (bin, args) => { calls.push(args[1]); return { status: 1, stdout: '', stderr: '' }; };
   const results = provisionMcp({ adapters: claude, exec, check: true });
-  assert.ok(results.every((r) => r.status === 'missing'));
+  assert.ok(results.every((r) => r.status === 'missing' || r.status === 'optional'));
   assert.ok(!calls.includes('add'));
 });
 
@@ -96,4 +123,23 @@ test('gemini: no ~/.gemini/settings.json at all -> treated as not registered, no
   const byName = Object.fromEntries(results.map((r) => [r.item, r]));
   assert.strictEqual(byName.playwright.status, 'missing');
   assert.strictEqual(byName.excalidraw.status, 'missing');
+});
+
+const codex = ADAPTERS.filter((a) => a.key === 'codex');
+
+test('javadocs registers as an HTTP server with per-adapter argv', () => {
+  const calls = [];
+  const exec = (bin, args) => {
+    calls.push([bin, ...args].join(' '));
+    if (args[1] === 'get') return { status: 1, stdout: '', stderr: 'not found' };
+    return { status: 0, stdout: 'ok', stderr: '' };
+  };
+  const claudeResults = provisionMcp({ adapters: claude, exec, check: false });
+  assert.strictEqual(claudeResults.find((r) => r.item === 'javadocs').status, 'installed');
+  assert.ok(calls.includes('claude mcp add --scope user --transport http javadocs https://www.javadocs.dev/mcp'));
+
+  calls.length = 0;
+  const codexResults = provisionMcp({ adapters: codex, exec, check: false });
+  assert.strictEqual(codexResults.find((r) => r.item === 'javadocs').status, 'installed');
+  assert.ok(calls.includes('codex mcp add javadocs --url https://www.javadocs.dev/mcp'));
 });
