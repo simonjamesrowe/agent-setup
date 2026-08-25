@@ -120,19 +120,49 @@ to fix it rather than being silently overwritten.
 
 `linear` is the only catalog server needing credentials, and it uses OAuth, so
 registration and authorization are separate steps: `install` registers it, then
-you sign in via an adapter-specific flow. Until you do, `doctor` reports it
-as `optional` — "registered but not authorized" — rather than `unchanged`,
-because the server is configured but its tools do not work. That row never
-affects the exit code, since the sign-in is a browser flow `agent-setup` cannot
-perform for you. The sign-in instruction is adapter-specific: Claude Code shows
-'run /mcp in Claude Code to sign in', while Codex and Gemini show their own
-guidance because their authorization flows are unverified as of 2026-08-25.
-Auth state is only detected for Claude Code in practice: Gemini's check reads
-its config file directly (which carries no auth metadata), and Codex's
-authorization detection is unverified.
+**you sign in once yourself**, with your agent's own command:
 
-If you would rather agents never write to your tracker, swap the URL for
-`https://mcp.linear.app/mcp/readonly` — same server, search and read only.
+| Agent | Sign in with |
+| --- | --- |
+| Claude Code | `/mcp`, in an interactive session |
+| Codex | `codex mcp login linear` |
+| Gemini CLI | `/mcp auth linear`, in an interactive session |
+
+(Verified 2026-08-25: `codex mcp login --help` on codex-cli 0.133.0, and
+gemini-cli 0.49.0's own `docs/tools/mcp-server.md`, which documents
+`/mcp auth serverName`. Gemini has no `gemini mcp login` subcommand.)
+
+Until you do, `doctor` reports the row as `optional` — `registered but not
+authorized` — rather than `unchanged`, because the server is configured but its
+tools do not work. That row never affects the exit code, since the sign-in is a
+browser flow `agent-setup` cannot perform for you. Auth state is only
+*detected* for Claude Code: `claude mcp get` prints a `Status:` line that says
+so, Gemini's check reads `~/.gemini/settings.json` (which carries no auth
+metadata at all), and Codex's unauthorized output is still unverified.
+
+#### Read-only Linear
+
+If you would rather agents never write to your tracker, remove the server and
+re-add it against Linear's read-only endpoint — same server, search and read
+only:
+
+```bash
+claude mcp remove linear -s user
+claude mcp add --scope user --transport http linear https://mcp.linear.app/mcp/readonly
+```
+
+`--scope user` is not optional: `claude mcp add` defaults to `local` scope
+(`claude mcp add --help`, Claude Code 2.1.220, 2026-08-25), and a local-scope
+`linear` shadows the user-scope one — which `agent-setup` reports as `failed`.
+Use the equivalent `remove`/`add` pair for Codex or Gemini.
+
+The swap survives future upgrades because `agent-setup`'s registration check
+matches on the server **name** only, never on the URL: `execBasedCheck` in
+`lib/provisioners/mcp.js` looks for the name in `mcp get` output, and the Gemini
+check looks for the `mcpServers` key. So a readonly-swapped `linear` reports
+`unchanged` on every later `install` run and is never clobbered. Editing the URL
+inside the installed npm package would *not* survive the next global install;
+this does.
 
 ### CLI tools and plugins
 

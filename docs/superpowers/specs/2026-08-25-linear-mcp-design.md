@@ -21,7 +21,7 @@ sign-in. `doctor` must say so instead of reporting `unchanged`.
 
 | Question | Finding | Source |
 |---|---|---|
-| Is there an official Linear MCP? | Yes — a first-party hosted remote server. Read/write endpoint `https://mcp.linear.app/mcp` (streamable HTTP); read-only variant `https://mcp.linear.app/mcp/readonly`; legacy SSE `https://mcp.linear.app/sse` for clients without streamable HTTP. | [linear.app/docs/mcp](https://linear.app/docs/mcp) |
+| Is there an official Linear MCP? | Yes — a first-party hosted remote server. Read/write endpoint `https://mcp.linear.app/mcp` (streamable HTTP); read-only variant `https://mcp.linear.app/mcp/readonly`; legacy SSE `https://mcp.linear.app/sse` for clients without streamable HTTP. **Correction, 2026-08-25:** the legacy SSE row is stale — probed directly, `/sse` returns **404** on both `GET` and `POST`, while `/mcp` and `/mcp/readonly` both return **401** (i.e. present, awaiting OAuth). Nothing in the implementation depends on `/sse`; it is recorded here only so the row is not read as a live fallback. | [linear.app/docs/mcp](https://linear.app/docs/mcp) |
 | Auth | OAuth 2.1 with dynamic client registration (interactive browser flow), or a Linear API key / bearer token in the `Authorization` header. Enterprise SAML via Okta. | [linear.app/docs/mcp](https://linear.app/docs/mcp) |
 | Tools | Find, create and update issues, projects and comments. Initiatives, initiative updates, project milestones, project updates and project labels added Feb 2026. | [linear.app/docs/mcp](https://linear.app/docs/mcp), [linear.app/changelog/2025-05-01-mcp](https://linear.app/changelog/2025-05-01-mcp) |
 | Client commands | `claude mcp add --transport http linear https://mcp.linear.app/mcp`; `codex mcp add linear --url https://mcp.linear.app/mcp`; Gemini takes `--transport http`. All three match the existing `type: 'http'` `mcpAddArgs` in our adapters — **no adapter changes needed**. | [linear.app/docs/mcp](https://linear.app/docs/mcp) |
@@ -42,6 +42,9 @@ running the real CLIs, not read from docs:
 | `~/.gemini/settings.json` | Carries `mcpServers` keys only. **No auth state at all.** |
 | `lib/report.js:22` | Renders a `note` on any row regardless of status, so an `optional` row with a note renders correctly. |
 | `lib/report.js:32` + `lib/run.js:70` (`strictMissing: check`) | `failed` always exits 1; `missing` exits 1 **on the doctor path**; `optional` never affects the exit code. |
+| `curl` against the three Linear endpoints | `/mcp` → 401, `/mcp/readonly` → 401, `/sse` → **404**. See the corrected research row above. |
+| `codex mcp --help` + `codex mcp login --help` (codex-cli 0.133.0) | **Supersedes the "Codex and Gemini auth rows" non-goal below, in part.** Codex does have a documented sign-in command: `codex mcp login <NAME>`, "Name of the MCP server to authenticate with oauth". The original probe used `codex mcp add --help`, the wrong `--help`. What remains unverified is only codex's *unauthorized output string*, not the command. |
+| gemini-cli 0.49.0 bundle (`gemini mcp --help`, `docs/tools/mcp-server.md`) | Gemini has no `mcp login` subcommand, but it does have a slash command: the bundle's own user-facing string is `Use /mcp auth <server-name> to authenticate.` and its docs document `/mcp auth serverName` under "Managing OAuth authentication". |
 
 ## Decisions
 
@@ -55,6 +58,16 @@ running the real CLIs, not read from docs:
    repo's other tooling (`playwright` driving the admin UI, `moderne`
    rewriting source) already trusts the operator to review agent actions. The
    readonly URL is documented in the README as an escape hatch.
+
+   > **Amended 2026-08-25:** "documented as an escape hatch" was too vague to
+   > act on — the URL lives inside an npm package that the next global install
+   > overwrites. The README now documents the durable mechanism instead:
+   > `claude mcp remove linear -s user` then `claude mcp add --scope user
+   > --transport http linear https://mcp.linear.app/mcp/readonly`. It sticks
+   > because `execBasedCheck` matches on the server **name** only, never the
+   > URL, so a readonly-swapped `linear` reports `unchanged` forever after.
+   > `--scope user` is required: `claude mcp add` defaults to `local`, which
+   > the scope-shadowing check would report as `failed`.
 3. **Per-server `needsAuth` flag, Claude only.** Auth state is reported only
    where it has been verified: Claude. Gemini and Codex report plain
    registration exactly as today.
@@ -75,6 +88,13 @@ running the real CLIs, not read from docs:
   `mcp list` but not in `mcp get`, and the unauthorized string is unverified
   (see above). Guessing it would be exactly the "trusting the exit code" bug
   the Moderne comments exist to prevent. A code comment records the gap.
+
+  > **Partly superseded 2026-08-25.** Still a non-goal for *detection*: neither
+  > adapter's unauthorized output is parsed. But the *sign-in commands* are now
+  > verified and named — `codex mcp login <name>` and `/mcp auth <name>` — so
+  > each adapter's `authHint(serverName)` states its real command instead of
+  > telling the operator to go read the vendor's docs. See the two new rows in
+  > the verified-locally table above.
 - **Automating the OAuth flow.** Impossible non-interactively, by design.
 - **A `linear` skill.** No org workflow to encode yet. If issue triage or
   release-notes flows settle into a routine, that's a separate spec.
@@ -122,6 +142,14 @@ function needsAuthOf(getOutput) { ... }
    the note `authorize with /mcp in Claude Code`, since the very next thing
    the operator must do is sign in.
 
+> **Superseded 2026-08-25 (steps 3 and 5).** Both notes were designed as
+> hardcoded Claude Code strings, but both `push` calls sit in the shared
+> per-adapter loop, so a codex or gemini run printed a Claude slash command.
+> The shipped code takes the wording from `adapter.authHint(serverName)`
+> instead — a function, because two of the three real commands need the server
+> name. The `optional` note reads `registered but not authorized — <hint>`, and
+> the `installed` note is the hint alone.
+
 The needs-auth signal travels as a third field on the object returned by
 `execBasedCheck` / `adapter.mcpCheckRegistered`. Adapters that don't report it
 (Gemini's `mcpCheckRegistered`, which reads `settings.json`) simply return it
@@ -164,5 +192,5 @@ Run with `npm test` (`node --test test/*.test.js`).
 | Risk | Mitigation |
 |---|---|
 | Linear changes the `Status:` string, or Claude Code reformats `mcp get` | The parse is one named helper with the verification date in its comment; failure mode is degrading to `unchanged`, i.e. today's behaviour, not a crash or a false `failed` |
-| Operators read `optional` as "you don't need this" | The note is explicit about the required action (`run /mcp in Claude Code to sign in`) |
-| Write access lets an agent mutate a real tracker | Deliberate (decision 2); `/mcp/readonly` documented as the escape hatch |
+| Operators read `optional` as "you don't need this" | The note is explicit about the required action, and adapter-specific: `run /mcp in Claude Code to sign in`, `run: codex mcp login linear`, `run /mcp auth linear in an interactive gemini session` |
+| Write access lets an agent mutate a real tracker | Deliberate (decision 2); the README documents the durable escape hatch — remove and re-add `linear` at **user** scope against `/mcp/readonly`, which survives package upgrades because the check matches on server name only (see the amendment under decision 2) |

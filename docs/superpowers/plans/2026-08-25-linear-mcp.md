@@ -126,6 +126,9 @@ git commit -m "feat: register the official Linear MCP server for every agent"
 - Modify: `lib/provisioners/mcp.js:22-37` (add `needsAuthOf`, extend `execBasedCheck`) and `:39-56` (the `provisionMcp` per-server flow)
 - Test: `test/provisioner-mcp.test.js` (six new tests)
 
+> **Correction:** the Step 1 code block below actually contains **seven** tests,
+> not six — the count in this header was wrong when written. Seven were added.
+
 **Interfaces:**
 - Consumes: `server.needsAuth` from the Task 1 catalog entry.
 - Produces:
@@ -306,6 +309,19 @@ Then, between the existing scope-shadowing block and the `if (registered)` line,
         }
 ```
 
+> **Superseded by commits b21a202 and the final fix wave (2026-08-25).** Both
+> hardcoded `'... run /mcp in Claude Code ...'` strings in this step are wrong:
+> the two `push` calls sit in the shared per-adapter loop with no adapter gate,
+> so a codex or gemini row was told to run a Claude Code slash command that does
+> not exist in those tools. The shipped code takes the wording from
+> `adapter.authHint(server.name)` — a **function** taking the server name,
+> because two of the three real commands need it (`codex mcp login linear`,
+> gemini's `/mcp auth linear`; Claude's `/mcp` ignores the argument). The
+> `optional` note is `registered but not authorized — ${authHint}`, and the
+> `installed` note is the hint alone. An adapter that omits `authHint` drops the
+> clause rather than rendering `undefined`. Read the two comment blocks in
+> `lib/provisioners/mcp.js` and each adapter's `authHint` for the real contract.
+
 Finally, replace the install block's last two lines (currently `const add = ...` and the `push(...)` after it) with:
 
 ```js
@@ -315,6 +331,9 @@ Finally, replace the install block's last two lines (currently `const add = ...`
         // has to name the next action rather than implying the setup is finished.
         push('installed', server.needsAuth ? 'authorize with /mcp in Claude Code' : undefined);
 ```
+
+> **Superseded** by the same note above: shipped as
+> `push('installed', server.needsAuth ? (authHint || undefined) : undefined)`.
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
@@ -414,3 +433,9 @@ node bin/agent-setup.js doctor --tools claude ; echo "exit=$?"
 Expected: the `doctor` run shows `linear  claude  optional  registered but not authorized — run /mcp in Claude Code to sign in`, and `exit=0`. Then sign in with `/mcp` in an interactive Claude Code session, re-run `doctor`, and expect `linear  claude  unchanged`.
 
 Report the actual output rather than assuming — if `claude mcp get` has reformatted its `Status:` line since 2026-08-25, this is the step that catches it, and the failure mode is a silent fall-through to `unchanged`.
+
+> **Executed 2026-08-25** (it had been skipped when the branch was first landed).
+> Real output is recorded in
+> `.superpowers/sdd/2026-08-25-linear-mcp/final-fix-report.md`. Note that the
+> expected `doctor` note in the block above is now adapter-specific — see the
+> superseded-note annotations under Task 2 Step 5.
