@@ -104,11 +104,12 @@ Registered at **user scope** for every detected agent.
 | `playwright` | stdio (`npx @playwright/mcp@latest`) | none | Browser automation — admin UI flows, chat verification |
 | `excalidraw` | HTTP | none | Diagrams |
 | `javadocs` | HTTP (`javadocs.dev`) | none | Java/Kotlin/Scala API docs from Maven Central |
+| `linear` | HTTP (`mcp.linear.app`) | OAuth (interactive, first use) | Linear issues, projects and comments |
 | `embabel-guide` | stdio (`mcp-remote` → `localhost:1337`) | your own LLM key | Embabel framework docs — **opt-in**, see below |
 | `moderne` | stdio (local, via the `mod` CLI) | none for today's recipes | OpenRewrite recipe search and deterministic execution |
 
-`playwright`, `excalidraw`, `javadocs` and `embabel-guide` are `agent-setup`'s
-own catalog (`MCP_SERVERS` in `lib/provisioners/mcp.js`). `moderne` is **not**
+`playwright`, `excalidraw`, `javadocs`, `linear` and `embabel-guide` are
+`agent-setup`'s own catalog (`MCP_SERVERS` in `lib/provisioners/mcp.js`). `moderne` is **not**
 in that array — it's registered by the `mod` CLI itself
 (`mod config agent-tools <agent> install`, see CLI tools below), not by
 `agent-setup`'s MCP provisioner.
@@ -116,6 +117,22 @@ in that array — it's registered by the `mod` CLI itself
 A server already registered at project or local scope would shadow the
 user-scope one, so that's reported as `failed` with the `mcp remove` command
 to fix it rather than being silently overwritten.
+
+`linear` is the only catalog server needing credentials, and it uses OAuth, so
+registration and authorization are separate steps: `install` registers it, then
+you sign in via an adapter-specific flow. Until you do, `doctor` reports it
+as `optional` — "registered but not authorized" — rather than `unchanged`,
+because the server is configured but its tools do not work. That row never
+affects the exit code, since the sign-in is a browser flow `agent-setup` cannot
+perform for you. The sign-in instruction is adapter-specific: Claude Code shows
+'run /mcp in Claude Code to sign in', while Codex and Gemini show their own
+guidance because their authorization flows are unverified as of 2026-08-25.
+Auth state is only detected for Claude Code in practice: Gemini's check reads
+its config file directly (which carries no auth metadata), and Codex's
+authorization detection is unverified.
+
+If you would rather agents never write to your tracker, swap the URL for
+`https://mcp.linear.app/mcp/readonly` — same server, search and read only.
 
 ### CLI tools and plugins
 
