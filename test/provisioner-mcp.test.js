@@ -262,8 +262,14 @@ test('installing a needsAuth server tells the operator to sign in', () => {
 // Fix round 1: `push('installed', ...)` sits in the shared per-adapter loop with no adapter
 // gate, so the install note must come from the adapter that reached it, not a hardcoded Claude
 // Code instruction — otherwise a fresh install on a machine with codex or gemini prints a row
-// telling the operator to run a slash command that does not exist in those tools.
-test('installing linear on every adapter uses that adapter\'s own authHint, never leaking /mcp onto codex or gemini', () => {
+// telling the operator to run a command that does not exist in those tools.
+//
+// The per-adapter commands are real and verified (see each adapter's authHint comment):
+// `/mcp` for claude, `codex mcp login <name>` for codex, `/mcp auth <name>` for gemini. Gemini's
+// happens to contain the substring `/mcp`, so this test cannot police leakage with a `/mcp`
+// regex — it asserts each note is exactly its own adapter's hint, and that no other adapter got
+// handed Claude's wording.
+test('installing linear on every adapter uses that adapter\'s own authHint, never leaking Claude\'s wording onto codex or gemini', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-setup-mcp-'));
   const exec = (bin, args) => {
     if (args[1] === 'get') return { status: 1, stdout: '', stderr: 'not found' };
@@ -271,10 +277,56 @@ test('installing linear on every adapter uses that adapter\'s own authHint, neve
   };
   const results = provisionMcp({ adapters: ADAPTERS, exec, check: false, home });
   const byTool = Object.fromEntries(results.filter((r) => r.item === 'linear').map((r) => [r.tool, r]));
-  assert.strictEqual(byTool.claude.note, claude[0].authHint);
-  assert.strictEqual(byTool.codex.note, codex[0].authHint);
-  assert.strictEqual(byTool.gemini.note, gemini[0].authHint);
+  assert.strictEqual(byTool.claude.note, claude[0].authHint('linear'));
+  assert.strictEqual(byTool.codex.note, codex[0].authHint('linear'));
+  assert.strictEqual(byTool.gemini.note, gemini[0].authHint('linear'));
   assert.match(byTool.claude.note, /\/mcp/);
-  assert.doesNotMatch(byTool.codex.note, /\/mcp/);
-  assert.doesNotMatch(byTool.gemini.note, /\/mcp/);
+  assert.notStrictEqual(byTool.codex.note, byTool.claude.note);
+  assert.notStrictEqual(byTool.gemini.note, byTool.claude.note);
+  assert.doesNotMatch(byTool.codex.note, /Claude Code/);
+  assert.doesNotMatch(byTool.gemini.note, /Claude Code/);
+  // The two commands that need it must carry the server name; a static string could only offer a
+  // placeholder for the operator to substitute.
+  assert.match(byTool.codex.note, /\blinear\b/);
+  assert.match(byTool.gemini.note, /\blinear\b/);
+});
+
+// The b21a202 defect (a hardcoded Claude instruction in a shared loop) existed at BOTH note call
+// sites, but only the install path got a cross-adapter test. This covers the other one: the
+// doctor/`optional` branch. Codex has no mcpCheckRegistered override, so it runs the same
+// execBasedCheck/needsAuthOf regex as claude and can reach that branch if its own `mcp get`
+// output ever carries a matching Status line — at which point the note must be codex's command,
+// not a Claude Code slash command.
+test('the unauthorized `optional` note is adapter-owned too, not just the install note', () => {
+  const exec = (bin, args) => {
+    if (args[1] === 'get' && args[2] === 'linear') {
+      return { status: 0, stdout: claudeGetStdout('linear', '! Needs authentication'), stderr: '' };
+    }
+    if (args[1] === 'get') return { status: 1, stdout: '', stderr: 'not found' };
+    return { status: 0, stdout: 'ok', stderr: '' };
+  };
+  const linear = provisionMcp({ adapters: codex, exec, check: true }).find((r) => r.item === 'linear');
+  assert.strictEqual(linear.status, 'optional');
+  assert.match(linear.note, /not authorized/);
+  assert.ok(linear.note.includes(codex[0].authHint('linear')), `note should carry codex's own hint, got: ${linear.note}`);
+  // Codex's real command is a CLI subcommand, not a slash command, so no `/mcp` may appear.
+  assert.doesNotMatch(linear.note, /\/mcp/);
+  assert.doesNotMatch(linear.note, /Claude Code/);
+});
+
+// Finding 8: an adapter that omits authHint must not turn the note into the string "undefined".
+test('an adapter with no authHint gets a truthful note, never "undefined"', () => {
+  const hintless = { ...claude[0], authHint: undefined };
+  const exec = claudeExecWithLinearStatus('! Needs authentication');
+  const optionalRow = provisionMcp({ adapters: [hintless], exec, check: true }).find((r) => r.item === 'linear');
+  assert.strictEqual(optionalRow.status, 'optional');
+  assert.strictEqual(optionalRow.note, 'registered but not authorized');
+  assert.doesNotMatch(optionalRow.note, /undefined/);
+
+  const installExec = (bin, args) => (args[1] === 'get'
+    ? { status: 1, stdout: '', stderr: 'not found' }
+    : { status: 0, stdout: 'ok', stderr: '' });
+  const installedRow = provisionMcp({ adapters: [hintless], exec: installExec, check: false }).find((r) => r.item === 'linear');
+  assert.strictEqual(installedRow.status, 'installed');
+  assert.strictEqual(installedRow.note, undefined);
 });
