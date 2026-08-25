@@ -258,3 +258,23 @@ test('installing a needsAuth server tells the operator to sign in', () => {
   // An open server's install row stays note-free.
   assert.strictEqual(results.find((r) => r.item === 'javadocs').note, undefined);
 });
+
+// Fix round 1: `push('installed', ...)` sits in the shared per-adapter loop with no adapter
+// gate, so the install note must come from the adapter that reached it, not a hardcoded Claude
+// Code instruction — otherwise a fresh install on a machine with codex or gemini prints a row
+// telling the operator to run a slash command that does not exist in those tools.
+test('installing linear on every adapter uses that adapter\'s own authHint, never leaking /mcp onto codex or gemini', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-setup-mcp-'));
+  const exec = (bin, args) => {
+    if (args[1] === 'get') return { status: 1, stdout: '', stderr: 'not found' };
+    return { status: 0, stdout: 'ok', stderr: '' };
+  };
+  const results = provisionMcp({ adapters: ADAPTERS, exec, check: false, home });
+  const byTool = Object.fromEntries(results.filter((r) => r.item === 'linear').map((r) => [r.tool, r]));
+  assert.strictEqual(byTool.claude.note, claude[0].authHint);
+  assert.strictEqual(byTool.codex.note, codex[0].authHint);
+  assert.strictEqual(byTool.gemini.note, gemini[0].authHint);
+  assert.match(byTool.claude.note, /\/mcp/);
+  assert.doesNotMatch(byTool.codex.note, /\/mcp/);
+  assert.doesNotMatch(byTool.gemini.note, /\/mcp/);
+});
