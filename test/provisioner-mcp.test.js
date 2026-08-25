@@ -7,6 +7,25 @@ const { provisionMcp, MCP_SERVERS } = require('../lib/provisioners/mcp.js');
 const { ADAPTERS } = require('../lib/adapters/index.js');
 const claude = ADAPTERS.filter((a) => a.key === 'claude');
 const gemini = ADAPTERS.filter((a) => a.key === 'gemini');
+const { exitCode } = require('../lib/report.js');
+
+// Real shape of `claude mcp get <name>` stdout, captured on 2026-08-25. `status` is 0 for all
+// three Status values — that is the whole reason these tests exist.
+function claudeGetStdout(name, status, scope = 'User config (available in all your projects)') {
+  return `${name}:\n  Scope: ${scope}\n  Status: ${status}\n  Type: http\n  URL: https://example.invalid/mcp\n`;
+}
+
+// A faked `claude` exec where `linear`'s `mcp get` returns the given Status line (exit 0, as the
+// real CLI does) and every other server is unregistered.
+function claudeExecWithLinearStatus(status, scope) {
+  return (bin, args) => {
+    if (args[1] === 'get' && args[2] === 'linear') {
+      return { status: 0, stdout: claudeGetStdout('linear', status, scope), stderr: '' };
+    }
+    if (args[1] === 'get') return { status: 1, stdout: '', stderr: 'not found' };
+    return { status: 0, stdout: 'ok', stderr: '' };
+  };
+}
 
 function makeHomeWithGeminiSettings(mcpServers) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-setup-mcp-'));
@@ -16,8 +35,11 @@ function makeHomeWithGeminiSettings(mcpServers) {
 }
 
 test('server catalog', () => {
-  assert.deepStrictEqual(MCP_SERVERS.map((s) => s.name).sort(), ['embabel-guide', 'excalidraw', 'javadocs', 'playwright']);
+  assert.deepStrictEqual(MCP_SERVERS.map((s) => s.name).sort(), ['embabel-guide', 'excalidraw', 'javadocs', 'linear', 'playwright']);
   assert.deepStrictEqual(MCP_SERVERS.filter((s) => s.optional).map((s) => s.name), ['embabel-guide']);
+  // linear is always-on: it is a hosted endpoint that costs nothing to have registered, unlike
+  // embabel-guide which needs a local Docker/Neo4j app running to be anything but a dead server.
+  assert.ok(!MCP_SERVERS.find((s) => s.name === 'linear').optional);
 });
 
 test('optional servers are reported optional and never registered unless named in --with', () => {
@@ -142,4 +164,169 @@ test('javadocs registers as an HTTP server with per-adapter argv', () => {
   const codexResults = provisionMcp({ adapters: codex, exec, check: false });
   assert.strictEqual(codexResults.find((r) => r.item === 'javadocs').status, 'installed');
   assert.ok(calls.includes('codex mcp add javadocs --url https://www.javadocs.dev/mcp'));
+});
+
+test('linear registers as an HTTP server with per-adapter argv', () => {
+  const calls = [];
+  const exec = (bin, args) => {
+    calls.push([bin, ...args].join(' '));
+    if (args[1] === 'get') return { status: 1, stdout: '', stderr: 'not found' };
+    return { status: 0, stdout: 'ok', stderr: '' };
+  };
+  const claudeResults = provisionMcp({ adapters: claude, exec, check: false });
+  assert.strictEqual(claudeResults.find((r) => r.item === 'linear').status, 'installed');
+  assert.ok(calls.includes('claude mcp add --scope user --transport http linear https://mcp.linear.app/mcp'));
+
+  calls.length = 0;
+  const codexResults = provisionMcp({ adapters: codex, exec, check: false });
+  assert.strictEqual(codexResults.find((r) => r.item === 'linear').status, 'installed');
+  assert.ok(calls.includes('codex mcp add linear --url https://mcp.linear.app/mcp'));
+});
+
+// `claude mcp get` exits 0 whether the server is connected, unauthorized, or failing to connect
+// (verified 2026-08-25 against the real `atlassian` server, registered at user scope but never
+// authorized: `Status: ! Needs authentication`, exit 0). Reporting that as `unchanged` would be
+// doctor lying about exactly the condition it exists to surface.
+test('needsAuth server registered but unauthorized -> optional with a sign-in note', () => {
+  const exec = claudeExecWithLinearStatus('! Needs authentication');
+  const results = provisionMcp({ adapters: claude, exec, check: true });
+  const linear = results.find((r) => r.item === 'linear');
+  assert.strictEqual(linear.status, 'optional');
+  assert.match(linear.note, /not authorized/);
+  assert.match(linear.note, /\/mcp/);
+});
+
+// `optional` rather than `missing`/`failed` is the point: doctor must not exit non-zero for a
+// browser sign-in the installer cannot perform. Same precedent as moderneAuthRow in plugins.js.
+// The row is isolated here because the other catalog servers are unregistered in this fake and
+// would exit 1 on their own under strictMissing.
+test('an unauthorized needsAuth row never affects the exit code', () => {
+  const exec = claudeExecWithLinearStatus('! Needs authentication');
+  const linear = provisionMcp({ adapters: claude, exec, check: true }).find((r) => r.item === 'linear');
+  assert.strictEqual(exitCode([linear], { strictMissing: true }), 0);
+  assert.strictEqual(exitCode([linear]), 0);
+});
+
+test('needsAuth server that is authorized -> plain unchanged, no note', () => {
+  const exec = claudeExecWithLinearStatus('✔ Connected');
+  const linear = provisionMcp({ adapters: claude, exec, check: true }).find((r) => r.item === 'linear');
+  assert.strictEqual(linear.status, 'unchanged');
+  assert.strictEqual(linear.note, undefined);
+});
+
+// `✘ Failed to connect` is transient for a hosted HTTP endpoint (a network blip). Treating it as
+// an auth problem would make doctor flaky, so it must fall through to today's behaviour.
+test('failed-to-connect is not an auth problem', () => {
+  const exec = claudeExecWithLinearStatus('✘ Failed to connect');
+  const linear = provisionMcp({ adapters: claude, exec, check: true }).find((r) => r.item === 'linear');
+  assert.strictEqual(linear.status, 'unchanged');
+});
+
+// A shadowing project/local-scope registration is a real misconfiguration the operator must fix,
+// and it outranks any auth consideration.
+test('project-scope shadowing beats the auth check', () => {
+  const exec = claudeExecWithLinearStatus('! Needs authentication', 'Project config');
+  const linear = provisionMcp({ adapters: claude, exec, check: true }).find((r) => r.item === 'linear');
+  assert.strictEqual(linear.status, 'failed');
+  assert.match(linear.note, /project scope/i);
+});
+
+// The catalog flag gates the behaviour, not the presence of the string — an open server has no
+// OAuth flow to complete, so there is nothing to tell the operator to do.
+test('servers without needsAuth are unaffected by a needs-authentication status', () => {
+  const exec = (bin, args) => {
+    if (args[1] === 'get' && args[2] === 'javadocs') {
+      return { status: 0, stdout: claudeGetStdout('javadocs', '! Needs authentication'), stderr: '' };
+    }
+    if (args[1] === 'get') return { status: 1, stdout: '', stderr: 'not found' };
+    return { status: 0, stdout: 'ok', stderr: '' };
+  };
+  const javadocs = provisionMcp({ adapters: claude, exec, check: true }).find((r) => r.item === 'javadocs');
+  assert.strictEqual(javadocs.status, 'unchanged');
+});
+
+// A fresh install cannot authorize the server, so the row must say what the operator does next.
+test('installing a needsAuth server tells the operator to sign in', () => {
+  const exec = (bin, args) => {
+    if (args[1] === 'get') return { status: 1, stdout: '', stderr: 'not found' };
+    return { status: 0, stdout: 'ok', stderr: '' };
+  };
+  const results = provisionMcp({ adapters: claude, exec, check: false });
+  const linear = results.find((r) => r.item === 'linear');
+  assert.strictEqual(linear.status, 'installed');
+  assert.match(linear.note, /\/mcp/);
+  // An open server's install row stays note-free.
+  assert.strictEqual(results.find((r) => r.item === 'javadocs').note, undefined);
+});
+
+// Fix round 1: `push('installed', ...)` sits in the shared per-adapter loop with no adapter
+// gate, so the install note must come from the adapter that reached it, not a hardcoded Claude
+// Code instruction — otherwise a fresh install on a machine with codex or gemini prints a row
+// telling the operator to run a command that does not exist in those tools.
+//
+// The per-adapter commands are real and verified (see each adapter's authHint comment):
+// `/mcp` for claude, `codex mcp login <name>` for codex, `/mcp auth <name>` for gemini. Gemini's
+// happens to contain the substring `/mcp`, so this test cannot police leakage with a `/mcp`
+// regex — it asserts each note is exactly its own adapter's hint, and that no other adapter got
+// handed Claude's wording.
+test('installing linear on every adapter uses that adapter\'s own authHint, never leaking Claude\'s wording onto codex or gemini', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-setup-mcp-'));
+  const exec = (bin, args) => {
+    if (args[1] === 'get') return { status: 1, stdout: '', stderr: 'not found' };
+    return { status: 0, stdout: 'ok', stderr: '' };
+  };
+  const results = provisionMcp({ adapters: ADAPTERS, exec, check: false, home });
+  const byTool = Object.fromEntries(results.filter((r) => r.item === 'linear').map((r) => [r.tool, r]));
+  assert.strictEqual(byTool.claude.note, claude[0].authHint('linear'));
+  assert.strictEqual(byTool.codex.note, codex[0].authHint('linear'));
+  assert.strictEqual(byTool.gemini.note, gemini[0].authHint('linear'));
+  assert.match(byTool.claude.note, /\/mcp/);
+  assert.notStrictEqual(byTool.codex.note, byTool.claude.note);
+  assert.notStrictEqual(byTool.gemini.note, byTool.claude.note);
+  assert.doesNotMatch(byTool.codex.note, /Claude Code/);
+  assert.doesNotMatch(byTool.gemini.note, /Claude Code/);
+  // The two commands that need it must carry the server name; a static string could only offer a
+  // placeholder for the operator to substitute.
+  assert.match(byTool.codex.note, /\blinear\b/);
+  assert.match(byTool.gemini.note, /\blinear\b/);
+});
+
+// The b21a202 defect (a hardcoded Claude instruction in a shared loop) existed at BOTH note call
+// sites, but only the install path got a cross-adapter test. This covers the other one: the
+// doctor/`optional` branch. Codex has no mcpCheckRegistered override, so it runs the same
+// execBasedCheck/needsAuthOf regex as claude and can reach that branch if its own `mcp get`
+// output ever carries a matching Status line — at which point the note must be codex's command,
+// not a Claude Code slash command.
+test('the unauthorized `optional` note is adapter-owned too, not just the install note', () => {
+  const exec = (bin, args) => {
+    if (args[1] === 'get' && args[2] === 'linear') {
+      return { status: 0, stdout: claudeGetStdout('linear', '! Needs authentication'), stderr: '' };
+    }
+    if (args[1] === 'get') return { status: 1, stdout: '', stderr: 'not found' };
+    return { status: 0, stdout: 'ok', stderr: '' };
+  };
+  const linear = provisionMcp({ adapters: codex, exec, check: true }).find((r) => r.item === 'linear');
+  assert.strictEqual(linear.status, 'optional');
+  assert.match(linear.note, /not authorized/);
+  assert.ok(linear.note.includes(codex[0].authHint('linear')), `note should carry codex's own hint, got: ${linear.note}`);
+  // Codex's real command is a CLI subcommand, not a slash command, so no `/mcp` may appear.
+  assert.doesNotMatch(linear.note, /\/mcp/);
+  assert.doesNotMatch(linear.note, /Claude Code/);
+});
+
+// Finding 8: an adapter that omits authHint must not turn the note into the string "undefined".
+test('an adapter with no authHint gets a truthful note, never "undefined"', () => {
+  const hintless = { ...claude[0], authHint: undefined };
+  const exec = claudeExecWithLinearStatus('! Needs authentication');
+  const optionalRow = provisionMcp({ adapters: [hintless], exec, check: true }).find((r) => r.item === 'linear');
+  assert.strictEqual(optionalRow.status, 'optional');
+  assert.strictEqual(optionalRow.note, 'registered but not authorized');
+  assert.doesNotMatch(optionalRow.note, /undefined/);
+
+  const installExec = (bin, args) => (args[1] === 'get'
+    ? { status: 1, stdout: '', stderr: 'not found' }
+    : { status: 0, stdout: 'ok', stderr: '' });
+  const installedRow = provisionMcp({ adapters: [hintless], exec: installExec, check: false }).find((r) => r.item === 'linear');
+  assert.strictEqual(installedRow.status, 'installed');
+  assert.strictEqual(installedRow.note, undefined);
 });
