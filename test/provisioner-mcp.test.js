@@ -16,8 +16,11 @@ function makeHomeWithGeminiSettings(mcpServers) {
 }
 
 test('server catalog', () => {
-  assert.deepStrictEqual(MCP_SERVERS.map((s) => s.name).sort(), ['embabel-guide', 'excalidraw', 'javadocs', 'playwright']);
+  assert.deepStrictEqual(MCP_SERVERS.map((s) => s.name).sort(), ['embabel-guide', 'excalidraw', 'javadocs', 'linear', 'playwright']);
   assert.deepStrictEqual(MCP_SERVERS.filter((s) => s.optional).map((s) => s.name), ['embabel-guide']);
+  // linear is always-on: it is a hosted endpoint that costs nothing to have registered, unlike
+  // embabel-guide which needs a local Docker/Neo4j app running to be anything but a dead server.
+  assert.ok(!MCP_SERVERS.find((s) => s.name === 'linear').optional);
 });
 
 test('optional servers are reported optional and never registered unless named in --with', () => {
@@ -142,4 +145,21 @@ test('javadocs registers as an HTTP server with per-adapter argv', () => {
   const codexResults = provisionMcp({ adapters: codex, exec, check: false });
   assert.strictEqual(codexResults.find((r) => r.item === 'javadocs').status, 'installed');
   assert.ok(calls.includes('codex mcp add javadocs --url https://www.javadocs.dev/mcp'));
+});
+
+test('linear registers as an HTTP server with per-adapter argv', () => {
+  const calls = [];
+  const exec = (bin, args) => {
+    calls.push([bin, ...args].join(' '));
+    if (args[1] === 'get') return { status: 1, stdout: '', stderr: 'not found' };
+    return { status: 0, stdout: 'ok', stderr: '' };
+  };
+  const claudeResults = provisionMcp({ adapters: claude, exec, check: false });
+  assert.strictEqual(claudeResults.find((r) => r.item === 'linear').status, 'installed');
+  assert.ok(calls.includes('claude mcp add --scope user --transport http linear https://mcp.linear.app/mcp'));
+
+  calls.length = 0;
+  const codexResults = provisionMcp({ adapters: codex, exec, check: false });
+  assert.strictEqual(codexResults.find((r) => r.item === 'linear').status, 'installed');
+  assert.ok(calls.includes('codex mcp add linear --url https://mcp.linear.app/mcp'));
 });
