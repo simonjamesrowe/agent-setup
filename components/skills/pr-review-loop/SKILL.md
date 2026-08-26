@@ -10,7 +10,7 @@ its own read mechanism and its own way of being misread:
 
 | Signal | What it is |
 | --- | --- |
-| **CI checks** | `ci.yml` — backend, frontend, software-factory, and the advisory `sonar` job |
+| **CI checks** | `ci.yml` — backend, frontend, software-factory, and the `sonar` job (whose *gate* is advisory; a red *job* is not — step 4a) |
 | **Reviewer verdict** | the `software-factory` container, commenting as `simonrowe-code-reviewer[bot]` |
 | **Analysis findings** | SonarQube Cloud, project `simonjamesrowe_simonrowe-dev-monorepo` |
 
@@ -297,8 +297,10 @@ will not go green wastes tokens and buries the signal — the same bound
 State all five:
 
 - **Pull request URL.**
-- **CI state** — which checks are green, which are red, and which advisory checks
-  are red or absent (and that this is fine).
+- **CI state** — which checks are green and which are red. `evaluate` being absent
+  is fine and worth saying so. A red **`Static Analysis`** job is **not** fine: report
+  it as an analysis that did not run, with the cause from step 4a, rather than as an
+  advisory failure to wave through. Only the quality gate is advisory.
 - **Findings addressed** — what the reviewer and Sonar raised, and what changed.
 - **Findings declined** — each one with the reason, and confirmation the reason is
   recorded in the pull request rather than only in this report.
