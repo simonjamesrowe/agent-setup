@@ -41,3 +41,18 @@ Reach for these before improvising:
 - `content-source-add` — add a content-aggregation scraper source
 - `chat-e2e-verify` — browser-driven chatbot quality pass
 - `langfuse-verify` — check LLM trace plumbing end-to-end
+- `pr-review-loop` — **open a pull request and drive it to green.** Owns the whole
+  sequence: pre-flight locally, open the PR, wait on all three signals (CI, the
+  reviewer bot, SonarQube Cloud), triage findings, push, re-wait, bounded. Use it
+  whenever you are about to create a pull request or shepherd one to merge — do not
+  improvise the loop.
+- `code-review-triage` — when the reviewer bot posted nothing at all
+- `dependency-cve-fix` — patch a Dependency-Track CVE finding and drive CI green
+- `spring-boot-upgrade` — cross-version backend upgrades via OpenRewrite/Moderne
+- `blog-publish` — research, draft, illustrate and publish a first-party post
+- `frontend-design` — visual direction when building or restyling UI
+- `embabel-guide` — run the Embabel docs MCP server when authoring agent code
+
+**Creating a pull request in this org means using `pr-review-loop`.** The three
+signals each have their own way of being misread, and a red `Static Analysis` check
+is a broken scanner rather than a cosmetic advisory failure. The skill records both.

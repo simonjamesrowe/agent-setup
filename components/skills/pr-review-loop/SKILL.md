@@ -10,7 +10,7 @@ its own read mechanism and its own way of being misread:
 
 | Signal | What it is |
 | --- | --- |
-| **CI checks** | `ci.yml` — backend, frontend, software-factory, and the advisory `sonar` job |
+| **CI checks** | `ci.yml` — backend, frontend, software-factory, and the `sonar` job (whose *gate* is advisory; a red *job* is not — step 4a) |
 | **Reviewer verdict** | the `software-factory` container, commenting as `simonrowe-code-reviewer[bot]` |
 | **Analysis findings** | SonarQube Cloud, project `simonjamesrowe_simonrowe-dev-monorepo` |
 
@@ -20,13 +20,18 @@ all three → triage → fix → push → re-wait, **bounded** → report.
 Work from `~/workspace/simonjamesrowe/simonrowe-dev-monorepo` or a Conductor
 workspace clone.
 
-> **One assumption is stated up front and is not yet verified.** The SonarQube API
-> calls in step 4c are written against documented API behaviour. At the time this
-> skill was written the SonarQube Cloud project did not exist yet, so **no call in
-> step 4c has ever been executed against a live project.** Treat the first real run
-> as verification: if a response shape differs from what is described here, fix this
-> skill rather than working around it. See
+> **The SonarQube reads in step 4c are verified.** Executed unauthenticated against
+> the live project on 2026-08-26 (pull request #110): `api/issues/search` and
+> `api/qualitygates/project_status` both return `200` with the shapes described in
+> step 4c. `api/ce/activity` returns `401` — do not reach for it. See
 > `docs/runbooks/static-analysis.md` in the monorepo for the setup this depends on.
+>
+> **What is *not* yet verified is a green `sonar` job.** As of 2026-08-26 the
+> `Static Analysis` job fails on every pull request because SonarQube Cloud's
+> Automatic Analysis is still enabled and refuses the CI scanner — see step 4a.
+> Every analysis currently in the project came from Automatic Analysis and carries
+> **no coverage data at all**. Until an operator switches the project to CI-based
+> analysis, a green gate here means less than it looks like.
 
 ## When to use
 
@@ -133,31 +138,50 @@ gh pr checks --watch
 - `Frontend Build & Test`
 - `Software Factory Build & Test`
 
-**Advisory checks** — failure here does **not** block:
+**Non-blocking checks** — a failure here does not stop a merge:
 
-| Check | Why advisory |
+| Check | Why non-blocking |
 | --- | --- |
 | `evaluate` (Promptfoo Evals) | `continue-on-error: true` |
-| `sonar` (Static Analysis) | `continue-on-error: true`, and `sonar.qualitygate.wait` is unset |
+| `Static Analysis` (the `sonar` job) | `continue-on-error: true`, and `sonar.qualitygate.wait` is unset |
 
-Two traps:
+**Non-blocking is not the same as ignorable, and for `Static Analysis` the
+distinction is the whole point.** Two different things get conflated under the word
+"advisory":
+
+- **The quality gate is advisory** — deliberately. `sonar.qualitygate.wait` is
+  unset so a gate `ERROR` cannot fail the build. That is by design; triage the
+  findings, do not treat the red as a build problem.
+- **A red `Static Analysis` *job* is a broken scanner** — never by design. It means
+  no analysis was published for this pull request at all. `continue-on-error: true`
+  hides it behind a merge that still goes through, which is exactly how it stayed
+  broken unnoticed from 2026-08-25 to 2026-08-26. **Diagnose it; do not shrug at
+  it.**
+
+So: check `Static Analysis` explicitly, every time, and if it is red read the log.
+
+```bash
+gh pr checks <pr> --json name,state,link | jq -r '.[] | "\(.state)\t\(.name)"'
+gh run view --job <job-id> --log | grep -iE "sonar|automatic analysis|MISS|FAILED"
+```
+
+Diagnosing a red `Static Analysis` job, most likely cause first:
+
+| In the log | Cause | What to do |
+| --- | --- | --- |
+| `You are running CI analysis while Automatic Analysis is enabled. Please consider disabling one or the other.` | Automatic Analysis is on in SonarQube Cloud. It wins; the Gradle scanner is refused and the job fails. | **You cannot fix this from a workspace.** It is a project setting: Administration → Analysis Method → CI-based, Automatic Analysis **off**. Runbook failure mode 1. Hand it back to the operator and say the analysis for this pull request did not run. |
+| `MISS <path>` in the **Verify analysis inputs** step | A coverage artifact hand-off broke — renamed artifact, changed report path, or a skipped producing job. | Fix the path or the producing job. That step exists precisely to make this visible instead of letting coverage silently read 0%. |
+| A project-not-found or authorisation error, roughly ten minutes in | `sonar.projectKey` does not match the account, or the token is wrong. | Runbook failure mode 4. The account is authoritative — change the key in `build.gradle.kts`. |
+
+Two remaining traps:
 
 - **`evaluate` is `paths:`-filtered.** Its normal state on an unrelated pull
   request is **absent**, not green. Waiting for it to appear waits forever. When
   grepping, match on `evaluate`, not `Promptfoo Evals`.
-- **`sonar` skips its analysis step when `SONAR_TOKEN` is unset**, and still
-  reports success. A green `sonar` job does **not** prove an analysis ran — check
-  whether the SonarQube check itself appeared (4c).
-
-On a failure, read the log rather than guessing:
-
-```bash
-gh run view <run-id> --log-failed
-```
-
-If the `sonar` job is red, read its **Verify analysis inputs** step first. That
-step exists to make a broken coverage-artifact hand-off visible, and it prints
-`ok` / `MISS` per input.
+- **A green `Static Analysis` job does not prove an analysis was published.** The
+  analysis step is guarded by `if: env.SONAR_TOKEN != ''`, and a skipped step still
+  reports success. The secret has existed since 2026-08-25, so the guard should now
+  fall open — but confirm against 4c rather than inferring it from the job colour.
 
 ### 4b. Reviewer verdict
 
@@ -200,11 +224,28 @@ curl -s "https://sonarcloud.io/api/issues/search?componentKeys=simonjamesrowe_si
 curl -s "https://sonarcloud.io/api/qualitygates/project_status?projectKey=simonjamesrowe_simonrowe-dev-monorepo&pullRequest=<pr>"
 ```
 
-A `404` from either means the project or this pull request's analysis does not
-exist — check the operator checklist in `docs/runbooks/static-analysis.md` rather
-than retrying. The most common cause is that the setup was never completed, in
-which case the `sonar` job is skipping its analysis step and there is simply
-nothing to read; that is expected, not a fault.
+```bash
+# Was coverage actually measured? Read this before believing a green gate.
+curl -s "https://sonarcloud.io/api/measures/component?component=simonjamesrowe_simonrowe-dev-monorepo&pullRequest=<pr>&metricKeys=coverage,new_coverage,ncloc"
+```
+
+**Check the coverage measure, not just the gate.** Automatic Analysis publishes a
+perfectly plausible analysis that never reads JaCoCo or LCOV, so the failure
+presents as a **green gate with no coverage metric at all** — the `measures` array
+simply omits `coverage`. On 2026-08-26 that was the live state: gate `OK` on pull
+request #110, four gate conditions, and **not one of them about coverage**, because
+with no coverage measure the condition is dropped rather than failed. A green gate
+under those conditions is a half-working analysis, not a pass.
+
+Expect, once the project is on CI-based analysis: a `coverage` measure present, and
+backend coverage within about a percentage point of the JaCoCo figure the
+`backend` job enforces. A `new_coverage` gate condition will also appear, and may
+report `ERROR` — still advisory, still worth triaging.
+
+A `404` from any of these means the project or this pull request's analysis does
+not exist. Check the operator checklist in `docs/runbooks/static-analysis.md`
+rather than retrying — and check 4a, because a red `Static Analysis` job means
+nothing was published for this pull request and there is genuinely nothing to read.
 
 A gate status of `ERROR` is **advisory** — it does not block the merge. Triage the
 findings anyway.
@@ -217,6 +258,12 @@ Three rules, applied to both the reviewer's findings and Sonar's.
 request does not get dragged into whatever pre-existing debt the first analysis of
 `main` surfaced — that is separate work with its own plan. Same principle for the
 reviewer: address what this change introduced.
+
+The volume behind that rule, measured on 2026-08-26: `main` carries **149
+unresolved issues** — 11 bugs, 8 vulnerabilities, 130 code smells — including at
+least one `BLOCKER` (`java:S2187`, a test class with no test methods, on
+`NarrationPropertiesTest`). None of it is yours unless your diff touched it. If a
+pull request's issue count looks alarming, check you are not reading Overall.
 
 **Fix it, or decline it with a stated reason in the pull request.** Never silence a
 finding by marking it "won't fix" or "false positive" in the SonarQube UI. That
@@ -250,14 +297,19 @@ will not go green wastes tokens and buries the signal — the same bound
 State all five:
 
 - **Pull request URL.**
-- **CI state** — which checks are green, which are red, and which advisory checks
-  are red or absent (and that this is fine).
+- **CI state** — which checks are green and which are red. `evaluate` being absent
+  is fine and worth saying so. A red **`Static Analysis`** job is **not** fine: report
+  it as an analysis that did not run, with the cause from step 4a, rather than as an
+  advisory failure to wave through. Only the quality gate is advisory.
 - **Findings addressed** — what the reviewer and Sonar raised, and what changed.
 - **Findings declined** — each one with the reason, and confirmation the reason is
   recorded in the pull request rather than only in this report.
-- **Gate status** — pass, fail, or unknown. `unknown` is the correct answer while
-  the SonarQube Cloud setup is incomplete; say so rather than implying the analysis
-  ran.
+- **Gate status** — pass, fail, or unknown, **and whether coverage was measured.**
+  Those are two facts, not one: report the gate and say explicitly whether a
+  `coverage` measure existed. "Gate OK, no coverage measured" is an honest and
+  common answer; "gate OK" on its own implies an analysis that may not have
+  happened. If the `Static Analysis` job was red, say the analysis did not run
+  rather than reporting whatever stale figure the API returns.
 
 If you hit the iteration bound, say that plainly and say what is still failing.
 

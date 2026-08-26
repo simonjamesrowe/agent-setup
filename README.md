@@ -88,6 +88,7 @@ Without `--tools`, `agent-setup` auto-detects which of `claude`, `gemini` and
 | `prod-data-restore`    | Restore the latest simonrowe.dev production backup (Google Drive) into a local environment via the admin Data Ops UI. |
 | `prod-deploy`          | Deploy simonrowe.dev to production: merge, watch the Publish workflow, restart on the Pi, smoke-test. |
 | `prod-logs`            | Fetch simonrowe.dev production logs from Grafana Cloud Loki, Portainer, or docker compose. |
+| `pr-review-loop`       | Drive a pull request from ready-to-review to all-signals-green: CI, the reviewer bot and SonarQube Cloud, triaged in a bounded loop. |
 | `prod-triage`          | Runbook for simonrowe.dev being down or misbehaving in production. |
 | `spring-boot-upgrade`  | Upgrade the simonrowe.dev backend across Spring Boot versions with OpenRewrite, via the Moderne MCP server or the OpenRewrite Gradle plugin. |
 
