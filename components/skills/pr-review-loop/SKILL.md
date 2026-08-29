@@ -1,37 +1,69 @@
 ---
 name: pr-review-loop
-description: Drive a simonrowe.dev pull request from ready-to-review to all-signals-green — pre-flight locally, open the PR, wait on CI, the code-review bot and SonarQube Cloud, triage findings, push, re-wait, bounded. Use when work is ready for review, a PR needs shepherding to green, or review/analysis findings need addressing.
+description: Use when work is ready for review on simonrowe.dev, a pull request needs shepherding to green, reviewer or SonarQube findings need addressing, review conversations need resolving, or a green pull request needs its merge disposition decided.
 ---
 
 # Pull Request Review Loop
 
-A simonrowe.dev pull request is judged by **three independent signals**, each with
+A simonrowe.dev pull request is judged by **four independent signals**, each with
 its own read mechanism and its own way of being misread:
 
-| Signal | What it is |
-| --- | --- |
-| **CI checks** | `ci.yml` — backend, frontend, software-factory, and the `sonar` job (whose *gate* is advisory; a red *job* is not — step 4a) |
-| **Reviewer verdict** | the `software-factory` container, commenting as `simonrowe-code-reviewer[bot]` |
-| **Analysis findings** | SonarQube Cloud, project `simonjamesrowe_simonrowe-dev-monorepo` |
+| Signal | What it is | How it gates |
+| --- | --- | --- |
+| **CI build checks** | `ci.yml` — `Backend Build & Test`, `Frontend Build & Test`, `Software Factory Build & Test` | **required** by the `main` ruleset |
+| **`Code Review` check run** | published by the `software-factory` container, which appears as `simonrowe-software-factory[bot]` | **required** by the ruleset |
+| **Review threads** | the reviewer's individual findings, as inline conversations on the diff | ruleset requires **every** conversation resolved |
+| **Analysis findings** | SonarQube Cloud, project `simonjamesrowe_simonrowe-dev-monorepo` | **advisory** — never blocks (step 4d) |
 
 This skill owns the sequence: pre-flight locally → open the pull request → wait on
-all three → triage → fix → push → re-wait, **bounded** → report.
+all four → triage → fix → push → re-wait, **bounded** → decide the merge
+disposition → report.
 
 Work from `~/workspace/simonjamesrowe/simonrowe-dev-monorepo` or a Conductor
 workspace clone.
 
-> **The SonarQube reads in step 4c are verified.** Executed unauthenticated against
-> the live project on 2026-08-26 (pull request #110): `api/issues/search` and
-> `api/qualitygates/project_status` both return `200` with the shapes described in
-> step 4c. `api/ce/activity` returns `401` — do not reach for it. See
-> `docs/runbooks/static-analysis.md` in the monorepo for the setup this depends on.
+## `main` is a real gate — read this before anything else
+
+Since `038-pr-governance` the default branch carries an **active ruleset**. That
+changes what this skill is for: it is no longer a quality ritual you could skip, it is
+the route to a merge.
+
+**Repository admins can bypass every rule** (`bypass_mode: always`, added
+2026-08-29). That hatch exists so a `software-factory` outage cannot wedge the
+repository — it is **not yours to use**. An agent driving this skill has exactly one
+job at the gate: satisfy it. If you cannot, hand the pull request back and say what is
+holding it. Merging past a red or absent check because you *can* destroys the only
+signal the gate produces, and every bypass is permanently recorded in the repository's
+rule-insights log.
+
+The ruleset requires four checks (the three CI builds plus **`Code Review`**), every
+review conversation resolved, linear history, and squash as the only merge method. It
+requires **zero approving reviews** — deliberately, because GitHub forbids approving
+your own pull request and a solo maintainer requiring one approval deadlocks forever.
+
+Two consequences worth holding onto:
+
+- **An absent required check blocks as hard as a failing one.** The `Code Review`
+  check is created after the reviewer loads the pull request, so a review that dies
+  earlier creates **no check at all** and the pull request is unmergeable with
+  nothing red to point at. That is not a bug to wait out — go to step 4b.
+- **A `software-factory` outage stops all *unattended* merging.** An accepted cost,
+  recorded in the monorepo's `docs/runbooks/pr-governance.md`. An operator can merge
+  past it as an admin; you cannot, and the repository's constitution prohibits manual
+  overrides of quality gates. Report the outage and let a human make that call.
+
+> **The reads in this skill are verified against live pull request #132**
+> (2026-08-29): all four required checks present and `SUCCESS`; the reviewer
+> commenting as `simonrowe-software-factory[bot]`; the GraphQL `reviewThreads` read
+> in step 4c returning a well-formed (empty) node list; `scripts/classify-change.sh`
+> returning all four dispositions; and SonarQube's `api/measures/component`,
+> `api/issues/search` and `api/qualitygates/project_status` all `200`
+> unauthenticated. `api/ce/activity` returns `401` — do not reach for it.
 >
-> **What is *not* yet verified is a green `sonar` job.** As of 2026-08-26 the
-> `Static Analysis` job fails on every pull request because SonarQube Cloud's
-> Automatic Analysis is still enabled and refuses the CI scanner — see step 4a.
-> Every analysis currently in the project came from Automatic Analysis and carries
-> **no coverage data at all**. Until an operator switches the project to CI-based
-> analysis, a green gate here means less than it looks like.
+> **SonarQube Cloud is now genuinely working**, which older copies of this skill
+> denied. As of pull request #132 the project is on CI-based analysis: gate `OK`
+> with a real `new_coverage` condition (91.5% new, 67.2% overall). The `Static
+> Analysis` job is green. Treat a red one as broken, per step 4a.
 
 ## When to use
 
@@ -48,7 +80,7 @@ know why, go straight to the `code-review-triage` skill — that is its whole jo
 - `gh` CLI, authenticated.
 - A clean working tree on a feature branch off an up-to-date `main`.
 - Nothing else. The SonarQube reads are attempted **unauthenticated** first,
-  because the repository is public (step 4c).
+  because the repository is public (step 4d).
 
 ---
 
@@ -122,9 +154,9 @@ declined finding gets justified in step 5.
 Pushing a branch runs nothing. `ci.yml` triggers on `pull_request` only, so the
 pull request is what starts CI.
 
-## 4. Wait on all three signals
+## 4. Wait on all four signals
 
-Do not stop at CI. All three, every time.
+Do not stop at CI. All four, every time.
 
 ### 4a. CI checks
 
@@ -132,18 +164,20 @@ Do not stop at CI. All three, every time.
 gh pr checks --watch
 ```
 
-**Blocking checks** — these must be green:
+**Required checks** — the ruleset will not let a merge happen without all four:
 
 - `Backend Build & Test`
 - `Frontend Build & Test`
 - `Software Factory Build & Test`
+- `Code Review` — not from `ci.yml`; see step 4b
 
 **Non-blocking checks** — a failure here does not stop a merge:
 
 | Check | Why non-blocking |
 | --- | --- |
-| `evaluate` (Promptfoo Evals) | `continue-on-error: true` |
-| `Static Analysis` (the `sonar` job) | `continue-on-error: true`, and `sonar.qualitygate.wait` is unset |
+| `evaluate` (Promptfoo Evals) | `continue-on-error: true`, and `paths:`-filtered — deliberately not required, since an absent required check blocks forever |
+| `Static Analysis` (the `sonar` job) | `continue-on-error: true`, so a green one is meaningless as a gate |
+| `SonarCloud Code Analysis` (from `sonarqubecloud[bot]`) | the gate is intentionally advisory; requiring it would leave no legitimate escape hatch, and the constitution bans manual overrides |
 
 **Non-blocking is not the same as ignorable, and for `Static Analysis` the
 distinction is the whole point.** Two different things get conflated under the word
@@ -183,34 +217,106 @@ Two remaining traps:
   reports success. The secret has existed since 2026-08-25, so the guard should now
   fall open — but confirm against 4c rather than inferring it from the job colour.
 
-### 4b. Reviewer verdict
+### 4b. Reviewer verdict — the `Code Review` check run
+
+**Read the check run, not the comment.** The check is what the merge gate reads, and
+it is the only one of the two that can be *absent*:
 
 ```bash
-gh api repos/simonjamesrowe/simonrowe-dev-monorepo/issues/<pr>/comments \
-  --jq '.[] | select(.user.login=="simonrowe-code-reviewer[bot]") | {created_at, body}'
+gh pr checks <pr> --json name,state --jq '.[] | select(.name=="Code Review")'
 ```
-
-**Do not read `/pulls/<pr>/reviews`.** The reviewer posts an *issue comment*, not a
-formal review, so the reviews list is **empty even on a successfully reviewed pull
-request**. Reading it produces a false "not reviewed yet" that never resolves.
-
-**Silence means failure, not approval.** Per the `code-review-triage` skill: a
-failed review frequently posts nothing at all, and silence is the *normal*
-presentation of failure. Never conclude from a quiet pull request that it passed.
 
 | Observation | Meaning | Action |
 | --- | --- | --- |
-| Comment, no blocking findings | reviewed, clean | proceed |
-| Comment with findings | reviewed, findings | triage (step 5) |
-| Comment says "did not complete" | reviewer failed | → `code-review-triage` |
-| No comment after a reasonable wait | reviewer failed | → `code-review-triage` |
+| `SUCCESS` | reviewed; no `CRITICAL`, verdict not `REQUEST_CHANGES` | on to 4c — findings may still exist and still block |
+| `FAILURE` | a `CRITICAL` finding **or** a `REQUEST_CHANGES` verdict | triage (step 5); this is hard-red |
+| **absent** | the review never got far enough to create it | → `code-review-triage`, then re-trigger (below) |
 
-**Cardinality trap.** Since PR #103 the reviewer posts **one comment per pull
-request**, but it **re-reviews per pushed commit** (the Temporal workflow id embeds
-the head SHA). So a second push does not produce a second comment to wait for, and
-you cannot infer how many reviews have happened from how many comments exist.
+**Absent is the failure mode to actually worry about,** because there is nothing red
+to see — `gh pr checks` simply lists one check fewer, and an absent required check
+blocks the merge just as hard as a failing one. Match on the name and assert it is
+there; never infer a pass from "nothing was red".
 
-### 4c. Analysis findings and gate
+Only `success` and `failure` are ever sent — the reviewer deliberately never emits
+`neutral`, because whether `neutral` satisfies a required check is version-dependent
+GitHub behaviour the gate must not rest on.
+
+The verdict comment carries the reasoning, and is worth reading once the check
+resolves:
+
+```bash
+gh api repos/simonjamesrowe/simonrowe-dev-monorepo/issues/<pr>/comments \
+  --jq '.[] | select(.user.login=="simonrowe-software-factory[bot]") | {created_at, body}'
+```
+
+The login is `simonrowe-software-factory[bot]`. **Not** `simonrowe-code-reviewer[bot]`
+— that account does not exist, and older copies of this skill named it, which made
+this read return empty on every pull request and so made every review look failed.
+
+**Do not read `/pulls/<pr>/reviews`.** The reviewer posts an *issue comment* plus
+inline comments, never a formal submitted review, so the reviews list is **empty even
+on a successfully reviewed pull request**. Reading it produces a false "not reviewed
+yet" that never resolves.
+
+**Silence still means failure, not approval.** Per the `code-review-triage` skill, a
+failed review frequently posts nothing at all. Never conclude from a quiet pull
+request that it passed.
+
+**Cardinality trap.** The reviewer posts **one comment per pull request** but
+**re-reviews per pushed commit** (the Temporal workflow id embeds the head SHA). A
+second push produces no second comment, so you cannot infer how many reviews have
+happened from how many comments exist. Read the `Commit <sha>` line in the comment
+body to see which commit the verdict is actually about.
+
+**Re-triggering a review the webhook can never repeat.** The webhook builds its
+workflow id from the head SHA under `REJECT_DUPLICATE`, so the same commit can never
+be re-reviewed from GitHub — not after a failed review, and not after one whose
+webhook never arrived. Pushing an empty commit is *not* the workaround. The manual
+trigger on `/admin/software-factory` sends no `expectedHeadSha`, which makes the
+service mint a UUID workflow id instead; that omission is the entire mechanism. Use
+it, or ask the operator to. Note its **dry run posts nothing whatsoever** — no
+findings, no verdict, no check run — so its outcome is visible only in that page's run
+progress.
+
+### 4c. Review threads — every conversation must be resolved
+
+The ruleset requires conversation resolution, so **any** unresolved finding blocks the
+merge regardless of severity. A `SUGGESTION` nobody answered is as blocking as a
+`CRITICAL`. This is why far fewer pull requests merge unattended than
+"backend-only ⇒ auto-merge" suggests.
+
+Findings arrive as inline conversations on the diff (`/pulls/<pr>/comments`). Read
+their resolution state with **GraphQL** — REST can neither see `isResolved` nor set
+it, which is the actual reason the reviewer used to delete and repost its findings
+instead of reconciling them:
+
+```bash
+gh api graphql -f query='
+query($owner:String!,$repo:String!,$pr:Int!){
+  repository(owner:$owner,name:$repo){
+    pullRequest(number:$pr){
+      reviewThreads(first:100){
+        nodes{ id isResolved isOutdated path line
+               comments(first:1){nodes{author{login} body}} }
+      }
+    }
+  }
+}' -F owner=simonjamesrowe -F repo=simonrowe-dev-monorepo -F pr=<pr> \
+  --jq '.data.repository.pullRequest.reviewThreads.nodes[]
+        | select(.isResolved==false)
+        | {path, line, body: .comments.nodes[0].body[0:120]}'
+```
+
+An empty result means nothing is outstanding. Anything listed is a merge blocker —
+take it to step 5, which is where the two legitimate ways to clear one are.
+
+**The reviewer never resolves a thread on your behalf while the finding still
+stands.** It reconciles its own threads across re-reviews and replies *"No longer
+reported as of `<sha>`"* on ones that have gone away — deliberately not "Fixed",
+because a re-worded finding title produces exactly the same state as a genuine fix, so
+claiming a fix would be a lie. Do not read that reply as a verdict on your change.
+
+### 4d. Analysis findings and gate
 
 The project is public, so try these **unauthenticated first**. Only if you get a
 `401` ask the operator to export a token — and never ask for the value in chat,
@@ -229,18 +335,18 @@ curl -s "https://sonarcloud.io/api/qualitygates/project_status?projectKey=simonj
 curl -s "https://sonarcloud.io/api/measures/component?component=simonjamesrowe_simonrowe-dev-monorepo&pullRequest=<pr>&metricKeys=coverage,new_coverage,ncloc"
 ```
 
-**Check the coverage measure, not just the gate.** Automatic Analysis publishes a
-perfectly plausible analysis that never reads JaCoCo or LCOV, so the failure
-presents as a **green gate with no coverage metric at all** — the `measures` array
-simply omits `coverage`. On 2026-08-26 that was the live state: gate `OK` on pull
-request #110, four gate conditions, and **not one of them about coverage**, because
-with no coverage measure the condition is dropped rather than failed. A green gate
-under those conditions is a half-working analysis, not a pass.
+**Check the coverage measure, not just the gate.** The old Automatic Analysis
+published a perfectly plausible analysis that never read JaCoCo or LCOV, and the
+failure presented as a **green gate with no coverage metric at all** — the `measures`
+array simply omitting `coverage`, so the condition was dropped rather than failed.
 
-Expect, once the project is on CI-based analysis: a `coverage` measure present, and
-backend coverage within about a percentage point of the JaCoCo figure the
-`backend` job enforces. A `new_coverage` gate condition will also appear, and may
-report `ERROR` — still advisory, still worth triaging.
+The project is on CI-based analysis now, so the healthy shape is: a `coverage` measure
+present, a `new_coverage` gate condition present, and backend coverage within about a
+percentage point of the JaCoCo figure the `backend` job enforces. Pull request #132
+measured `coverage` 67.2, `new_coverage` 91.5, gate `OK` with five conditions
+including `new_coverage`. **A gate `OK` with no `coverage` measure and no
+`new_coverage` condition is a regression to the half-working state** — report it as
+such rather than as a pass.
 
 A `404` from any of these means the project or this pull request's analysis does
 not exist. Check the operator checklist in `docs/runbooks/static-analysis.md`
@@ -271,6 +377,36 @@ hides the decision from the diff and from review, and the repository's constitut
 prohibits manual overrides of quality gates. A declined finding goes in the pull
 request body or a comment, with the reason.
 
+### Clearing a review thread
+
+A blocking conversation has exactly two legitimate endings, and **both** end with the
+thread resolved — resolving is what the gate reads, so a fix you never resolve still
+blocks:
+
+1. **Fixed.** Push the fix, then resolve the thread. The reviewer's own
+   *"No longer reported"* reply is not resolution; you still resolve it.
+2. **Declined.** Reply in the thread with *why*, then resolve it. The reply is not
+   optional courtesy — it is the only place the decision is recorded, and resolving
+   without it silently erases a finding a future reader would want to see.
+
+Resolving needs GraphQL (REST cannot set `isResolved`), using the thread `id` from
+step 4c:
+
+```bash
+# reply first, if declining
+gh api graphql -f query='mutation($t:ID!,$b:String!){
+  addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$t, body:$b}){
+    comment{ id } } }' -F t=<threadId> -F b="Declined: <reason>"
+
+# then resolve
+gh api graphql -f query='mutation($t:ID!){
+  resolveReviewThread(input:{threadId:$t}){ thread{ isResolved } } }' -F t=<threadId>
+```
+
+**Never resolve a thread you have neither fixed nor answered.** It is mechanically
+trivial and it defeats the entire gate — the one control that makes a `SUGGESTION`
+matter. If you cannot fix it and cannot justify declining it, hand it back instead.
+
 **Verify before obeying.** Use `superpowers:receiving-code-review`. A finding from
 a bot is a claim, not an instruction — some are wrong, some are right for reasons
 other than the one stated. Check it against the actual code before changing
@@ -284,17 +420,63 @@ git add <files> && git commit -m "fix: <what>" && git push
 gh pr checks --watch
 ```
 
-Then re-read all three signals. Remember the reviewer will re-review this commit
-but will not post a second comment.
+Then re-read all four signals. Remember the reviewer will re-review this commit but
+will not post a second comment — and that a re-review reconciles its threads rather
+than reposting them, so a thread you already resolved stays resolved.
 
 **Bound this at roughly three fix-and-push iterations.** After that, stop and hand
 it back with what you tried and what is still failing. Looping on something that
 will not go green wastes tokens and buries the signal — the same bound
 `dependency-cve-fix` applies.
 
-## 7. Report
+## 7. Decide the merge disposition — and arm auto-merge if it earns it
 
-State all five:
+**Do not decide this by judgement.** The repository ships a classifier; run it. A
+default-deny path list is testable as a script and rots invisibly as prose, which is
+why it is not written out here:
+
+```bash
+scripts/classify-change.sh origin/main
+# or, to classify an explicit set:
+printf 'backend/src/main/java/A.java\n' | scripts/classify-change.sh
+```
+
+It prints two lines — `category=auto-merge|ux-review|manual` and
+`ux_affecting=true|false` — and **exits 0 for every category, `manual` included**.
+"Needs a human" is an answer, not an error; a non-zero exit means the script itself
+broke.
+
+| `category` | What you do |
+| --- | --- |
+| `auto-merge` | `gh pr merge <pr> --auto --squash`, and say so in the pull request body |
+| `ux-review` | **no auto-merge.** Capture screenshots of the affected screens, attach them, state why the merge is being left to a human |
+| `manual` | **no auto-merge.** State in the body which path forced it |
+
+Precedence is highest-first: `manual` paths (compose files, `scripts/**`, `config/**`,
+`.github/**`, `gradle*`, root build files, `frontend/*.config.*`,
+`frontend/package*.json`) **outrank** `auto-merge` ones. That is not an oversight — an
+auto-merge to `main` triggers Publish, which triggers an **unattended production
+deploy against the Pi**, and `036-auto-deploy-rollout-fixes` is a nine-item catalogue
+of ways those fail that no test catches. An unrecognised path is `manual`, never
+`auto-merge`, so a new top-level directory defaults to needing a human.
+
+**`--auto` is the merge mechanism, not permission to stop watching.** GitHub merges
+when the gate is satisfied; it will sit there indefinitely if it never is. Finish steps
+4–6 and report the real state either way. Two traps:
+
+- **`--auto` is rejected on a pull request that is already mergeable** ("clean
+  status"). If every check is already green, either merge outright with
+  `gh pr merge <pr> --squash` or accept the error — it means the gate is already
+  satisfied, not that arming failed.
+- **Arming auto-merge does not resolve anything.** An unresolved conversation from
+  step 4c holds the merge forever with no error message. Clear those first.
+
+**Never merge to satisfy this step.** If the classifier says `ux-review` or `manual`,
+the disposition *is* the deliverable — hand it over with the classification named.
+
+## 8. Report
+
+State all six:
 
 - **Pull request URL.**
 - **CI state** — which checks are green and which are red. `evaluate` being absent
@@ -306,10 +488,17 @@ State all five:
   recorded in the pull request rather than only in this report.
 - **Gate status** — pass, fail, or unknown, **and whether coverage was measured.**
   Those are two facts, not one: report the gate and say explicitly whether a
-  `coverage` measure existed. "Gate OK, no coverage measured" is an honest and
-  common answer; "gate OK" on its own implies an analysis that may not have
-  happened. If the `Static Analysis` job was red, say the analysis did not run
-  rather than reporting whatever stale figure the API returns.
+  `coverage` measure existed. "Gate OK, no coverage measured" is a half-working
+  analysis, not a pass. If the `Static Analysis` job was red, say the analysis did not
+  run rather than reporting whatever stale figure the API returns.
+- **Merge disposition** — the `category` the classifier returned, and what you did
+  about it: auto-merge armed, screenshots captured, or left to a human with the
+  reason. Say whether the pull request is actually mergeable now or still held, and by
+  what.
+
+**Report the `Code Review` check explicitly, including when it is absent.** "The
+reviewer was quiet" is not a report — an absent check is an unmergeable pull request,
+and saying nothing about it is how that gets mistaken for a pass.
 
 If you hit the iteration bound, say that plainly and say what is still failing.
 
@@ -319,6 +508,8 @@ If you hit the iteration bound, say that plainly and say what is still failing.
 - `code-review-triage` — when the reviewer posts nothing, or says it did not complete
 - `superpowers:receiving-code-review` — verifying a finding before implementing it
 - `dependency-cve-fix` — the same loop, scoped to Dependency-Track findings
+- `docs/runbooks/pr-governance.md` (monorepo) — the ruleset, the fingerprinted
+  threads, the `Code Review` check, and the auto-merge policy this skill enacts
 - `docs/runbooks/static-analysis.md` (monorepo) — what the `sonar` job does, the
   operator setup it needs, and its six failure modes
 - `docs/runbooks/software-factory.md` (monorepo) — the reviewer bot's architecture
