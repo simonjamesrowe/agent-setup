@@ -20,6 +20,7 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
 - **Data restores go through the admin Data Ops UI** (browser automation), not raw mongorestore against prod data.
 - **Backups**: full-with-media only; retain the last 7.
 - **Never restart prod nginx** unless all four upstreams (frontend, backend, portainer, langfuse) are running — nginx aborts at boot if any upstream is down, taking Portainer with it.
+- **Renumbering documentation sections**: after renumbering, grep the whole doc (and any files that reference its section numbers) for stale references — manual inspection misses them.
 
 ## Git conventions (this org)
 
