@@ -215,7 +215,7 @@ Two remaining traps:
 - **A green `Static Analysis` job does not prove an analysis was published.** The
   analysis step is guarded by `if: env.SONAR_TOKEN != ''`, and a skipped step still
   reports success. The secret has existed since 2026-08-25, so the guard should now
-  fall open — but confirm against 4c rather than inferring it from the job colour.
+  fall open — but confirm against 4d rather than inferring it from the job colour.
 
 ### 4b. Reviewer verdict — the `Code Review` check run
 
@@ -344,9 +344,17 @@ The project is on CI-based analysis now, so the healthy shape is: a `coverage` m
 present, a `new_coverage` gate condition present, and backend coverage within about a
 percentage point of the JaCoCo figure the `backend` job enforces. Pull request #132
 measured `coverage` 67.2, `new_coverage` 91.5, gate `OK` with five conditions
-including `new_coverage`. **A gate `OK` with no `coverage` measure and no
-`new_coverage` condition is a regression to the half-working state** — report it as
-such rather than as a pass.
+including `new_coverage`. **A gate `OK` with no `coverage` measure at all is a
+regression to the half-working state** — report it as such rather than as a pass.
+
+**One legitimate exception, and it is easy to misreport:** a pull request that changes
+no analysable code — docs, JSON, a ruleset — has no new lines to measure, so
+`new_coverage` is absent from both the measures and the gate conditions while
+`coverage` is still present. That is correct, not broken. Pull request #133 (JSON and
+markdown only) returned gate `OK`, four conditions, none of them `new_coverage`, and
+`coverage` 67.2. The distinction that matters is **`coverage` missing** (broken
+analysis) versus **`new_coverage` missing on a change with no analysable lines**
+(nothing to measure).
 
 A `404` from any of these means the project or this pull request's analysis does
 not exist. Check the operator checklist in `docs/runbooks/static-analysis.md`
