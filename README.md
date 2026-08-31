@@ -106,14 +106,24 @@ Registered at **user scope** for every detected agent.
 | `excalidraw` | HTTP | none | Diagrams |
 | `javadocs` | HTTP (`javadocs.dev`) | none | Java/Kotlin/Scala API docs from Maven Central |
 | `linear` | HTTP (`mcp.linear.app`) | OAuth (interactive, first use) | Linear issues, projects and comments |
+| `simonrowe-dev` | HTTP (`api.simonrowe.dev/mcp`) | none | The site's own content — profile, jobs, skills, blogs, news, events, code examples |
 | `embabel-guide` | stdio (`mcp-remote` → `localhost:1337`) | your own LLM key | Embabel framework docs — **opt-in**, see below |
 | `moderne` | stdio (local, via the `mod` CLI) | none for today's recipes | OpenRewrite recipe search and deterministic execution |
 
-`playwright`, `excalidraw`, `javadocs`, `linear` and `embabel-guide` are
-`agent-setup`'s own catalog (`MCP_SERVERS` in `lib/provisioners/mcp.js`). `moderne` is **not**
-in that array — it's registered by the `mod` CLI itself
-(`mod config agent-tools <agent> install`, see CLI tools below), not by
-`agent-setup`'s MCP provisioner.
+`playwright`, `excalidraw`, `javadocs`, `linear`, `simonrowe-dev` and
+`embabel-guide` are `agent-setup`'s own catalog (`MCP_SERVERS` in
+`lib/provisioners/mcp.js`). `moderne` is **not** in that array — it's
+registered by the `mod` CLI itself (`mod config agent-tools <agent> install`,
+see CLI tools below), not by `agent-setup`'s MCP provisioner.
+
+`simonrowe-dev` is the site's own MCP server, served by the Spring Boot backend
+at `https://api.simonrowe.dev/mcp` (streamable HTTP, no auth, no local
+process — it is up whenever the API is). It gives every agent first-hand access
+to the live site content instead of guessing: `getProfile`, `getJobs`,
+`getSkills`, `searchBlogs`, `getRecentBlogs`, `searchNews`,
+`getUpcomingEvents`, `getCodeExamples`, `searchSite` and `submitContactForm`.
+The last of those emails Simon and is the only side-effecting tool; the server
+rate-limits it to once per session itself.
 
 A server already registered at project or local scope would shadow the
 user-scope one, so that's reported as `failed` with the `mcp remove` command
