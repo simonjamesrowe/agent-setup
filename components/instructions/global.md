@@ -22,6 +22,16 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
 - **Never restart prod nginx** unless all four upstreams (frontend, backend, portainer, langfuse) are running — nginx aborts at boot if any upstream is down, taking Portainer with it.
 - **Renumbering documentation sections**: after renumbering, grep the whole doc (and any files that reference its section numbers) for stale references — manual inspection misses them.
 
+## Code quality
+
+- **Clean up root causes even when guards prevent them from triggering.** Cancel
+  timers, close resources, dispose observers, or clear state when the async
+  operation completes — don't just guard against stale effects later.
+- **Prefer mechanical constraints over enumerating failure modes.** Instead of
+  checking every way something might be hidden or fail, apply a constraint
+  (clamping, clipping, bounding) that inherently handles all cases without
+  requiring knowledge of every possible edge case.
+
 ## Git conventions (this org)
 
 Conventional commits and branch prefixes (`feat/`, `fix/`, `chore/`). No Jira
