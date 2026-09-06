@@ -54,6 +54,15 @@ Reach for these before improvising:
 - `frontend-design` — visual direction when building or restyling UI
 - `embabel-guide` — run the Embabel docs MCP server when authoring agent code
 
+## Planning before building
+
+`grill-me` (from `mattpocock-skills`, installed for all three agents) replaced
+superpowers' brainstorming flow. Reach for it before work that is not yet pinned
+down: it walks the design tree in rounds, asking every question whose
+prerequisites are already settled and waiting for answers before the next round.
+It plans only — it never writes code. `grill-me` is user-invoked (type it);
+`grilling` is the half an agent can reach for itself.
+
 **Creating a pull request in this org means using `pr-review-loop`.** The three
 signals each have their own way of being misread, and a red `Static Analysis` check
 is a broken scanner rather than a cosmetic advisory failure. The skill records both.

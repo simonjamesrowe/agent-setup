@@ -16,10 +16,11 @@ plugins for whichever of the three it finds on your `PATH`.
 
 | | Claude Code | Gemini CLI | Codex |
 | --- | --- | --- | --- |
-| Skills (17) | ✅ `~/.claude/skills/` | ✅ `~/.gemini/skills/` | ✅ `~/.codex/skills/` |
+| Org skills (18) | ✅ `~/.claude/skills/` | ✅ `~/.gemini/skills/` | ✅ `~/.codex/skills/` |
 | Instructions | ✅ `CLAUDE.md` | ✅ `GEMINI.md` | ✅ `AGENTS.md` |
 | MCP servers | ✅ | ✅ | ✅ |
-| Plugins (superpowers, spring-tools) | ✅ | ❌ Claude-only marketplaces | ❌ Claude-only marketplaces |
+| `mattpocock-skills` (25 skills) | ✅ plugin | ✅ via `gemini skills install` | ✅ plugin |
+| `spring-tools` plugin | ✅ | ❌ no plugin mechanism | ❌ Claude-format only |
 | speckit | ✅ | ✅ | ✅ (tool-agnostic, via `uv`) |
 | Moderne CLI + OpenRewrite MCP | ✅ | ❌ not supported upstream | ✅ |
 
@@ -179,10 +180,64 @@ this does.
 
 | Tool | Installed via | Agents |
 | --- | --- | --- |
-| `superpowers` | `claude plugin install` | Claude Code |
+| `mattpocock-skills` | `plugin marketplace add mattpocock/skills` + `plugin install`/`plugin add` (Claude, Codex); `gemini skills install` (Gemini) | all three |
 | `spring-tools` | `claude plugin marketplace add` + `plugin install` | Claude Code |
 | `speckit` | `uv tool install specify-cli` | all (tool-agnostic) |
 | `moderne` | `brew install moderneinc/moderne/mod` + `mod config agent-tools <agent> install` (once per supported agent) | Claude Code, Codex |
+
+#### `mattpocock-skills` — the process layer
+
+[mattpocock/skills](https://github.com/mattpocock/skills) (MIT) replaced
+`superpowers` in 1.0.0. It carries 25 skills: `grill-me`/`grilling` (a
+design-tree interview that stress-tests a plan before any code is written),
+`tdd`, `code-review`, `diagnosing-bugs`, `domain-modeling`, `to-spec`,
+`to-tickets`, `research`, `handoff` and more.
+
+Installed from upstream rather than vendored into `components/skills/`, so it
+tracks the source instead of drifting from a frozen copy.
+
+Reaching all three agents takes two different mechanisms, because only two of
+them have a plugin system:
+
+| Agent | Mechanism |
+| --- | --- |
+| Claude Code | `claude plugin marketplace add mattpocock/skills` + `claude plugin install mattpocock-skills@mattpocock` |
+| Codex | `codex plugin marketplace add mattpocock/skills` + `codex plugin add mattpocock-skills@mattpocock` |
+| Gemini CLI | `gemini skills install https://github.com/mattpocock/skills --path skills/engineering` (and `--path skills/productivity`) |
+
+**Codex reads Claude-format marketplaces.** Verified 2026-09-06 on codex-cli
+0.150.1: `codex plugin marketplace add mattpocock/skills` resolves the repo's
+`.claude-plugin/marketplace.json` and registers the marketplace as `mattpocock`
+(the marketplace name comes from that file, not from the repo name — the two
+differ here). The install verb is `plugin add`, not `plugin install`, and Codex
+has no `plugin enable`.
+
+**Gemini has no plugin mechanism at all**, but `gemini skills install <git-url>
+--path <subdir>` clones a repo once and installs every `SKILL.md` beneath one
+subdirectory. The two paths are `skills/engineering` and `skills/productivity`
+rather than `skills` — the repo also carries `skills/in-progress` (8) and
+`skills/misc` (4), which the upstream plugin manifest deliberately excludes.
+These land in `~/.gemini/skills/` alongside this repo's own 18 skills; there is
+no name collision today, and neither set clobbers the other.
+
+**`grill-me` is invisible to the model, by design.** It ships
+`disable-model-invocation: true`, so Claude and Codex both hide it from the
+model's skill list and only surface it when *you* type it. The model-visible
+half is `grilling`, which carries the actual interview loop. `grill-me` is a
+one-line entry point that calls it.
+
+#### `superpowers` is removed, not just unmanaged
+
+`superpowers` was installed by this tool for Claude Code up to 0.4.1, and
+OpenAI's own `openai-curated` marketplace offers it to Codex as well. From 1.0.0
+`install` actively **uninstalls** it from both: an orphaned `superpowers` keeps
+injecting its SessionStart block into every session, which is the standing
+context cost this change exists to remove.
+
+`doctor` reports a still-installed `superpowers` as `missing` — the one place
+that status means "present, and should not be" — so a machine that has not run
+the migration exits non-zero. This is a one-release migration and will be
+dropped once every machine has run 1.x.
 
 `mod config agent-tools <agent> install` registers the Moderne MCP server
 **and** installs Moderne's own OpenRewrite skills for that agent, so
