@@ -21,6 +21,7 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
 - **Backups**: full-with-media only; retain the last 7.
 - **Never restart prod nginx** unless all four upstreams (frontend, backend, portainer, langfuse) are running — nginx aborts at boot if any upstream is down, taking Portainer with it.
 - **Renumbering documentation sections**: after renumbering, grep the whole doc (and any files that reference its section numbers) for stale references — manual inspection misses them.
+- **Regexes over unbounded input** (logs, error traces, batched data), especially in error-detection paths: test against a 100k+ char string shaped to trigger worst-case matching, and use possessive quantifiers (`++`, `*+`) to rule out catastrophic backtracking — a `StackOverflowError` there can cascade to complete system failure.
 
 ## Git conventions (this org)
 
