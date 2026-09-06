@@ -415,11 +415,12 @@ gh api graphql -f query='mutation($t:ID!){
 trivial and it defeats the entire gate — the one control that makes a `SUGGESTION`
 matter. If you cannot fix it and cannot justify declining it, hand it back instead.
 
-**Verify before obeying.** Use `superpowers:receiving-code-review`. A finding from
-a bot is a claim, not an instruction — some are wrong, some are right for reasons
-other than the one stated. Check it against the actual code before changing
-anything, and if you disagree, decline it explicitly per the rule above rather
-than implementing something you believe is wrong.
+**Verify before obeying.** A finding from a bot is a claim, not an instruction —
+some are wrong, some are right for reasons other than the one stated. Check it
+against the actual code before changing anything, and if you disagree, decline it
+explicitly per the rule above rather than implementing something you believe is
+wrong. Performative agreement with a wrong finding costs more than the argument
+does.
 
 ## 6. Fix, push, re-wait — bounded
 
@@ -514,7 +515,6 @@ If you hit the iteration bound, say that plainly and say what is still failing.
 
 - `backend-test` — the backend Gradle incantations this skill defers to
 - `code-review-triage` — when the reviewer posts nothing, or says it did not complete
-- `superpowers:receiving-code-review` — verifying a finding before implementing it
 - `dependency-cve-fix` — the same loop, scoped to Dependency-Track findings
 - `docs/runbooks/pr-governance.md` (monorepo) — the ruleset, the fingerprinted
   threads, the `Code Review` check, and the auto-merge policy this skill enacts
