@@ -32,6 +32,17 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   checking every way something might be hidden or fail, apply a constraint
   (clamping, clipping, bounding) that inherently handles all cases without
   requiring knowledge of every possible edge case.
+- **Validate URL allowlists by parsed origin, not string prefix.** Use the
+  `URL()` constructor and compare origins; `startsWith('https://example.com')`
+  is forgeable by suffix (`https://example.com.attacker.example/phish`).
+- **Revalidate redirect targets before following them.** Disable automatic
+  redirect-following on HTTP clients doing security-sensitive fetches, then
+  validate each hop's destination before requesting it, to prevent SSRF via
+  redirect chains.
+- **Keep defensive null checks on third-party library return values** even if
+  static analysis flags them unreachable — third-party behavior varies by
+  version, and the check is cheaper than the NPE from a future dependency
+  upgrade.
 
 ## Git conventions (this org)
 
