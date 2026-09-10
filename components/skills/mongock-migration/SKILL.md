@@ -236,6 +236,11 @@ whole point. Watch the boot log there (`prod-logs`) to confirm it executed.
 - **Two change units, one deploy** is fine and normal; they run in `order`
   sequence. Just make sure the later one does not assume the earlier one's data if
   it might be replayed alone.
+- **Destructive change units (row removal) need extra proof.** Automated path
+  classifiers miss these changes, so verify by hand: use pattern C to confirm the
+  deletion actually runs at application boot, double-check the survivor-selection
+  logic picks the right row to keep, and state in the Javadoc why the deleted data
+  is safely re-derivable (or note explicitly if it is not).
 
 ## Related skills
 
