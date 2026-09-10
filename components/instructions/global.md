@@ -43,6 +43,14 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   static analysis flags them unreachable — third-party behavior varies by
   version, and the check is cheaper than the NPE from a future dependency
   upgrade.
+- **Test layered configuration flags (request-level + global) in asymmetric
+  combinations**, not just both-true/both-false. A test suite that never sets
+  them in opposite states will miss a code path that checks one flag but not
+  the other.
+- **Don't assume similar operations share dry-run semantics.** When adding a
+  preview/dry-run mode across multiple operations, decide independently what
+  each should expose — don't just copy the guard conditions from a similar
+  operation.
 
 ## Git conventions (this org)
 
