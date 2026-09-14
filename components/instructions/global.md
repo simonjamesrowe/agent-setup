@@ -51,6 +51,9 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   preview/dry-run mode across multiple operations, decide independently what
   each should expose — don't just copy the guard conditions from a similar
   operation.
+- **Scope bug fixes to your PR's new code.** When a finding applies to both new
+  and pre-existing code, fix only the new occurrences and raise pre-existing
+  instances as a separate, focused technical-debt PR.
 
 ## Git conventions (this org)
 
