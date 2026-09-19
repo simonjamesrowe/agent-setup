@@ -93,9 +93,7 @@ Defer to the **`backend-test`** skill for the backend Gradle incantations —
 checkstyle, tests, JaCoCo verification, and how to read each failure. Do not
 restate them here.
 
-Note that `backend-test` currently describes the build as single-module. It is
-not: `settings.gradle.kts` includes both `backend` and `software-factory`, and
-`software-factory` has its own Checkstyle gate. So run it explicitly:
+`software-factory` has its own quality gate; run it when affected:
 
 ```bash
 ./gradlew :software-factory:check

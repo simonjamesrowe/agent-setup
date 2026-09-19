@@ -6,20 +6,20 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
 ## Environment map
 
 - https://simonrowe.dev — the site (React frontend)
-- https://api.simonrowe.dev — Spring Boot backend (`/actuator/health`, `/api/blogs`, `/api/profile`; management port 8081 in prod, 8082 default locally)
+- https://api.simonrowe.dev — Spring Boot backend (`/api/blogs`, `/api/profile`; `/actuator/health` is on the separate management port, 8081 in prod, 8082 default locally)
 - https://console.simonrowe.dev — Portainer (container management)
-- https://langfuse.simonrowe.dev — Langfuse (prod runs v3: LLM traces flow via Alloy's `ai_only` filter; local compose is still v2 with no OTLP ingest — expect no local traces)
+- https://langfuse.simonrowe.dev — Langfuse (both prod and local run v3 with Alloy; explicitly target the correct host/project when verifying traces)
 - Grafana Cloud Loki — prod container logs (`logs-prod-035.grafana.net`, query by `container` label)
-- Production host: Raspberry Pi (ARM64) running `docker-compose.prod.yml`, ingress via Cloudflare → pinggy tunnel → nginx. **No SSH access from this machine**: emit a single copy-paste command block for Simon to run on the Pi and ask for the output.
+- Production host: Raspberry Pi (ARM64) running `docker-compose.prod.yml`, ingress via Cloudflare → pinggy tunnel → nginx. Use Playwright MCP → Raspberry Pi Connect → Remote shell for host commands (`prod-triage` has the access procedure). Direct SSH is unavailable; manual copy-paste is the fallback when Connect cannot be used.
 - Images: `ghcr.io/simonjamesrowe/simonrowe-dev-monorepo-{backend,frontend}` — pushed by the "Publish" GitHub Actions workflow on merge to main; the Pi pulls (no push deploy).
 
 ## Non-negotiables
 
-- **Credentials come from env files** (`.env` in the repo, sourced from `~/workspace/simonjamesrowe/env`). Admin identity is `admin@simonrowe.dev`; the password is in env. Never ask for or echo credential values.
+- **Credentials come from env files** (`.env` in the repo, sourced from `~/workspace/simonjamesrowe/env`). Reuse Simon’s Google/Auth0 browser session for admin access and verify `DEV_PORTAL_ADMIN`; use configured env credentials when a password login is needed. Never ask for or echo credential values.
 - **Mongock-first**: any production data change ships as a Mongock change unit in the backend, not an ad-hoc script.
 - **Data restores go through the admin Data Ops UI** (browser automation), not raw mongorestore against prod data.
 - **Backups**: full-with-media only; retain the last 7.
-- **Never restart prod nginx** unless all four upstreams (frontend, backend, portainer, langfuse) are running — nginx aborts at boot if any upstream is down, taking Portainer with it.
+- **Check nginx and upstream health before a production restart.** Current nginx resolves upstreams at runtime; older static configurations abort at boot when an upstream is absent. Verify the deployed config and follow `prod-triage`.
 - **Renumbering documentation sections**: after renumbering, grep the whole doc (and any files that reference its section numbers) for stale references — manual inspection misses them.
 - **Regexes over unbounded input** (logs, error traces, batched data), especially in error-detection paths: test against a 100k+ char string shaped to trigger worst-case matching, and use possessive quantifiers (`++`, `*+`) to rule out catastrophic backtracking — a `StackOverflowError` there can cascade to complete system failure.
 
@@ -76,8 +76,8 @@ Reach for these before improvising:
 - `chat-e2e-verify` — browser-driven chatbot quality pass
 - `langfuse-verify` — check LLM trace plumbing end-to-end
 - `pr-review-loop` — **open a pull request and drive it to green.** Owns the whole
-  sequence: pre-flight locally, open the PR, wait on all three signals (CI, the
-  reviewer bot, SonarQube Cloud), triage findings, push, re-wait, bounded. Use it
+  sequence: pre-flight locally, open the PR, wait on all four signals (CI, reviewer check,
+  review threads, SonarQube Cloud), triage findings, push, re-wait, bounded. Use it
   whenever you are about to create a pull request or shepherd one to merge — do not
   improvise the loop.
 - `code-review-triage` — when the reviewer bot posted nothing at all
@@ -96,6 +96,6 @@ prerequisites are already settled and waiting for answers before the next round.
 It plans only — it never writes code. `grill-me` is user-invoked (type it);
 `grilling` is the half an agent can reach for itself.
 
-**Creating a pull request in this org means using `pr-review-loop`.** The three
+**Creating a pull request in this org means using `pr-review-loop`.** The four
 signals each have their own way of being misread, and a red `Static Analysis` check
 is a broken scanner rather than a cosmetic advisory failure. The skill records both.

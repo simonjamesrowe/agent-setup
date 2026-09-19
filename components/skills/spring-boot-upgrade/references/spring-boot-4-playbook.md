@@ -1,3 +1,8 @@
+> Historical research from 2026-08-21, before the completed Boot 4 upgrade.
+> For current operation use `../SKILL.md` and the monorepo's
+> `docs/runbooks/spring-boot-4-upgrade.md`. Versions, blockers and the old
+> `reviewer` module name below describe that investigation, not current main.
+
 # Spring Boot 4.0 playbook
 
 Reference material for the `spring-boot-upgrade` skill. Everything here was

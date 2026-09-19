@@ -25,13 +25,19 @@ Everything runs from `docker-compose.prod.yml`, compose project
 
 ## Prerequisites
 
-- **No SSH from the dev machine to the Pi.** Every host-side step is emitted as
-  a single copy-paste block for Simon to run on the Pi; then ask for the output
-  before moving on.
+- Use [Raspberry Pi Connect](references/raspberry-pi-connect.md) for host-side
+  commands. Reuse the browser session; manual copy-paste is the fallback when
+  Connect is unavailable.
 - `curl` locally. Optionally Loki credentials (see `prod-logs`) and an admin
   Auth0 token.
 
 ## Workflow
+
+Read the deployed `scripts/monitor-prod.sh` and the current
+`docs/runbooks/prod-monitoring.md` before repairs. Historical thresholds and
+recovery commands below must be checked against that version. If Connect also
+shows the Pi offline, use `docs/runbooks/wifi-resilience.md`; a host network
+failure cannot be fixed through an unreachable browser shell.
 
 ### 1. Establish what is actually broken, from the outside
 
@@ -82,7 +88,7 @@ before it logs `CRIT` and backs off. State lives in `/tmp/prod-health/`
 So: if the outage is under ~3 minutes old, self-healing may still be in flight —
 read the log before touching anything.
 
-Emit for the Pi, then ask for the output:
+Run in the Connect remote shell and read the output:
 
 ```bash
 cd ~/workspace/simonjamesrowe/simonrowe-dev-monorepo && ./scripts/status-prod.sh && tail -50 /var/log/prod-health/monitor.log
@@ -124,47 +130,25 @@ Watch for anything in `Created` or `Restarting`. This is the single most common
 prod failure mode, and it usually shows as a 502 because nginx keeps serving with
 a stale cached upstream IP.
 
-### 5. nginx crash-loop / "host not found in upstream"
+### 5. nginx and upstream failures
 
-`config/nginx/nginx-proxy.conf` uses static `proxy_pass http://<name>` with **no
-`resolver` directive**. nginx therefore resolves all four upstream hostnames
-once at boot and **aborts with `host not found in upstream` if any of them is not
-running**. A long-running nginx tolerates a dead upstream at runtime (it just
-502s), but restarting it while an upstream is down means it never comes back —
-and because Portainer sits behind the same nginx, that also kills the management
-UI.
+Inspect the deployed `config/nginx/nginx-proxy.conf`, container health and logs.
+Current main uses `resolver 127.0.0.11` and variable upstreams: a down upstream
+returns an error for that route rather than preventing nginx from starting.
+The old static-DNS failure applies only to a deployment still using that config.
+Keep the standing upstream-health check before restarting; never infer readiness
+from `up -d` alone.
 
-**Before restarting prod nginx, confirm ALL FOUR upstreams are running:**
-`frontend`, `backend`, `portainer`, `langfuse`.
-
-```bash
-cd ~/workspace/simonjamesrowe/simonrowe-dev-monorepo && docker compose -f docker-compose.prod.yml ps frontend backend portainer langfuse && docker compose -f docker-compose.prod.yml logs --tail 40 nginx
-```
-
-Minimal recovery when nginx is dead because `langfuse` is down (the usual pair —
-`langfuse` is an nginx `depends_on` with only `service_started`, so it can be
-down while nginx thinks it is fine):
-
-```bash
-docker start simonrowe-dev-monorepo-langfuse-1 && docker start simonrowe-dev-monorepo-nginx-1
-```
-
-Full reconcile (preferred, respects ordering):
-
-```bash
-cd ~/workspace/simonjamesrowe/simonrowe-dev-monorepo && docker compose -f docker-compose.prod.yml up -d && docker compose -f docker-compose.prod.yml restart nginx
-```
-
-That trailing nginx restart is what `restart-prod.sh` and `monitor-prod.sh` both
-do, and it is safe there precisely because `up -d` has just confirmed every
-upstream is up.
+Read `docs/runbooks/prod-monitoring.md` and `docs/runbooks/deploy.md` for recovery.
+An intentional maintenance 503 during a deploy is different from a failed proxy.
+Inspect the active deploy before restarting services or clearing maintenance.
 
 ### 6. Site up but behaving like the old build → stale image
 
 If prod behaviour predates the merge you are expecting, prod is running a stale
 image. `up -d` only recreates containers whose image or config changed, so a
 `pull` that failed silently leaves the old image in place. Run the digest
-comparison in **`prod-deploy` step 5**, then re-run `./scripts/restart-prod.sh`
+comparison in **`prod-deploy` running-release verification**, then re-run `./scripts/restart-prod.sh`
 (it pulls). Remember `docker-compose.prod.yml`, `.env`, `frontend/nginx.conf` and
 `config/nginx/nginx-proxy.conf` are bind-mounted from the Pi's checkout, so a
 config fix also needs `git pull` there.
@@ -196,9 +180,8 @@ not ship logs to Loki — use Portainer (`https://console.simonrowe.dev`) or
   reboot. That is intentional.
 - The nightly backup runs 22:00 Europe/London and holds the single
   data-operations lock; admin POSTs in that window return 409.
-- A `redeploy` triggered via the API restarts the backend ~5s after the API
-  returns, via an ephemeral `backend-restarter` container — a brief API gap right
-  after a "successful" redeploy is expected, not an incident.
+- Deployments now run through software-factory/deployer. Use `prod-deploy` to
+  distinguish active maintenance from a stuck deployment.
 - Cloudflare sits in front of everything: a Cloudflare error page (520/521/522)
   means the origin/tunnel is unreachable, not that nginx returned an error.
 

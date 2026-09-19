@@ -212,7 +212,7 @@ scrape. Add `?upcoming=false` to see past events too:
 curl -sS 'http://localhost:8080/api/events?size=5&upcoming=false' | head -c 600
 ```
 
-Then the page itself: with browser automation (Playwright MCP in Claude Code)
+Then the page itself: with browser automation (Playwright MCP)
 open `http://localhost:5173/news-events`, confirm the new source's cards appear
 with an image, a sensible date and a working outbound link, and screenshot it.
 Otherwise print those steps and ask Simon to confirm.

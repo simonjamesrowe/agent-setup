@@ -123,15 +123,11 @@ wired into the `guide` service's environment block, even though
 `.env.example` documents four. Confirm what actually landed:
 
 ```bash
-docker compose exec guide env | grep API_KEY
+docker compose exec guide sh -c 'if [ -n "$OPENAI_API_KEY" ]; then echo "OPENAI_API_KEY set"; else echo "OPENAI_API_KEY missing"; fi'
 ```
 
-This works, and — unlike `up`/`down`/`config` — works without the profile
-flags. On this run, with no key set anywhere, it printed exactly one line,
-`OPENAI_API_KEY=` with an empty value: compose sets that variable whether or
-not you exported it, and the other three provider keys never reach the
-container at all. If you rely on a provider other than OpenAI, this is the
-check that tells you your key never arrived.
+Check only presence, never the value. Inspect the current guide compose file
+before relying on another provider: the original setup passed only OpenAI through.
 
 To supply a key, export it from the env file before step 3:
 

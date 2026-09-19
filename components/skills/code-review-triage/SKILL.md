@@ -7,7 +7,7 @@ description: Diagnose why the automated code reviewer did not review a pull requ
 
 The automated reviewer is the `software-factory` container: a GitHub webhook
 receiver and a Temporal worker in one JVM, reviewing pull requests with the
-Claude CLI and commenting as `simonrowe-code-reviewer[bot]`. See
+Claude CLI and commenting as `simonrowe-software-factory[bot]`. See
 `docs/runbooks/software-factory.md` in the monorepo for its architecture.
 
 **A failed review frequently posts nothing to the pull request.** Silence is the
@@ -27,8 +27,13 @@ observability this subsystem has — there is no dashboard and no alerting.
 
 - `gh` CLI, authenticated.
 - Temporal UI: `https://temporal.simonrowe.dev`, behind Auth0 SSO, which requires
-  `DEV_PORTAL_ADMIN`. Login is Google/Auth0 — **ask Simon to complete the login
-  step in the browser**; never type or request a password.
+  `DEV_PORTAL_ADMIN`. Reuse the cached Google/Auth0 session; ask Simon to complete a browser
+  challenge only if sign-in actually requires it.
+- Host commands via [Raspberry Pi Connect](../prod-triage/references/raspberry-pi-connect.md).
+- Read current `docs/runbooks/software-factory.md` and
+  `docs/runbooks/software-factory-manual-actions.md` before using historical
+  failure signatures below. Check `Code Review` on the current PR head as well
+  as the verdict comment; `pr-review-loop` owns the merge gate.
 - Container logs via the `prod-logs` skill: `{service="software-factory"}`.
 
 ## Workflow
@@ -37,7 +42,7 @@ observability this subsystem has — there is no dashboard and no alerting.
 
 ```bash
 gh api repos/simonjamesrowe/simonrowe-dev-monorepo/issues/<pr>/comments \
-  --jq '.[] | select(.user.login=="simonrowe-code-reviewer[bot]") | {created_at, body: .body[0:200]}'
+  --jq '.[] | select(.user.login=="simonrowe-software-factory[bot]") | {created_at, body: .body[0:200]}'
 ```
 
 **Do not use `/pulls/<pr>/reviews` to decide whether a review happened.** It is
@@ -52,7 +57,7 @@ To sweep a range:
 ```bash
 for n in $(seq 90 100); do
   gh api "repos/simonjamesrowe/simonrowe-dev-monorepo/issues/$n/comments?per_page=100" \
-    --jq ".[] | select(.user.login==\"simonrowe-code-reviewer[bot]\") | [\"PR$n\", .created_at, (if (.body|contains(\"did not complete\")) then \"FAILED\" else \"ok\" end)] | @tsv" 2>/dev/null
+    --jq ".[] | select(.user.login==\"simonrowe-software-factory[bot]\") | [\"PR$n\", .created_at, (if (.body|contains(\"did not complete\")) then \"FAILED\" else \"ok\" end)] | @tsv" 2>/dev/null
 done
 ```
 
@@ -99,7 +104,7 @@ which kills every review before anything can be posted.
 **The rule: widen the App's permissions *before* deploying an image that requests
 them, never after.**
 
-Fix: org settings → Developer settings → GitHub Apps → `simonrowe-code-reviewer`
+Fix: org settings → Developer settings → GitHub Apps → the App backing `simonrowe-software-factory[bot]`
 → Permissions & events → set the permission → save → then **accept the
 permission request on each installation** (saving on the App alone is not
 enough). No redeploy or restart is needed: failed mints are never cached, so the
@@ -191,5 +196,5 @@ commenting.
 ## Related skills
 
 - `prod-logs` — container logs, `{service="software-factory"}`.
-- `prod-deploy` — the main stack deploy, which does **not** cover this container.
+- `prod-deploy` — verify the automated deployment and the separate deployer update.
 - `prod-triage` — when the site itself is down.

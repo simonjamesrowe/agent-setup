@@ -70,7 +70,7 @@ a renamed kind fails silently — this is the single most likely regression.
 
 ### 3. Drive the UI
 
-With browser automation (Playwright MCP in Claude Code): open
+With browser automation (Playwright MCP): open
 `http://localhost:5173`, click the **ASK AI** nav button (`data-testid="open-chat"`)
 to open the overlay panel (`data-testid="chat-panel"`), type into the
 `Type a message...` input and submit with the `Send message` button. The home
@@ -179,9 +179,9 @@ in prod (`prod-logs`) for STOMP/handshake errors, then check in this order:
   the surface that actually changed.
 - **The guardrail costs a model call per message.** Slow first responses are
   often the classifier, not the answer.
-- **Content capture is off by default**, so Langfuse traces show that a
-  generation happened but not the prompt/completion text — do not expect to read
-  the conversation back out of observability. See `langfuse-verify`.
+- **Content capture is configurable** with `LANGFUSE_CONTENT_CAPTURE_ENABLED`.
+  Inspect the target environment; see `langfuse-verify` for local and production
+  tracing, session grouping and input/output checks.
 - **`evals.yml` is `continue-on-error: true`.** A red eval job does not block a
   PR and is easy to miss; read its log rather than trusting the check mark.
 - **Answer text is non-deterministic.** Assert on behaviour (deflected /

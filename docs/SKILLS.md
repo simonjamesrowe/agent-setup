@@ -61,9 +61,11 @@ Every skill is a directory containing a `SKILL.md` with:
   trigger clause, not a summary. Write it so an agent deciding whether to load
   the skill can tell from the description alone: what the skill does, and the
   situation that should make it reach for this skill.
-- **Body length: roughly 100–300 lines.** Short enough to load cheaply, long
-  enough to actually carry the runbook/procedure. If it's growing past that,
-  split heavy reference material out (see below) rather than inlining it.
+- **Use the shortest complete procedure; no minimum length.** Prefer under
+  150 lines and review anything over 300 for extraction. Keep actions, branch
+  conditions and completion evidence in the body; move troubleshooting tables,
+  historical investigations and long examples behind conditional references.
+  Count words too: a few very long paragraphs can still be expensive.
 - **`references/` subdirectory for heavy material.** Long command output
   samples, exhaustive option tables, or anything that's "look this up when
   needed" rather than "read every time" goes in `references/`, linked from the
@@ -99,7 +101,7 @@ per-tool translation — the contract above exists precisely so that a single
    (`<prefix>-<verb-or-noun>`). Check the table above for an existing prefix
    before inventing one.
 2. **Author it.** Create `components/skills/<name>/SKILL.md` with the
-   frontmatter contract above, a body in the 100–300 line range, and a
+   frontmatter contract above, a concise executable procedure, and a
    `references/` subdirectory if there's heavy material to offload.
 3. **Lint it.** `npm run lint:skills` — must report `skills lint: OK`.
 4. **Test-install it.** Run the smoke-test install into a throwaway target
@@ -111,3 +113,18 @@ per-tool translation — the contract above exists precisely so that a single
    backward compatible). Update `package.json`'s `version` accordingly before
    publishing — see the README's version policy for the full patch/minor/major
    rules.
+
+## Keeping skills accurate
+
+Record the source revision and distinguish live checks from source inspection
+when auditing a skill. Read versions, module names and service lists from the
+target checkout instead of duplicating them as permanent facts. Keep historical
+incident evidence in dated references, not in the default workflow.
+
+Give each shared procedure one owner: `pr-review-loop` owns PR shepherding,
+`prod-data-restore` owns the admin restore/login flow, and the Connect reference
+under `prod-triage` owns Pi shell access. Link those procedures rather than copying
+them. `lint:skills` validates structure, not operational correctness.
+
+See [the September 2026 audit](SKILL-AUDIT-2026-09-19.md) for evidence, remaining
+cleanup and the per-skill keep/trim decisions.
