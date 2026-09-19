@@ -35,7 +35,7 @@ Spring Data would do naturally on write.
 ## Prerequisites
 
 - Repo at `~/workspace/simonjamesrowe/simonrowe-dev-monorepo` (or a Conductor
-  workspace clone). Java 21, Docker for tests.
+  workspace clone). Use the checkout's Java toolchain; Docker for tests.
 - Docker + the local stack for the end-to-end verification in step 6 — see
   `local-env`. Not needed for the tests themselves (`backend-test`).
 - Read [references/changeunit-patterns.md](references/changeunit-patterns.md)
@@ -246,7 +246,8 @@ whole point. Watch the boot log there (`prod-logs`) to confirm it executed.
 
 - `backend-test` — running the change-unit test, checkstyle and the coverage gate.
 - `local-env` — bringing up MongoDB and restarting the backend to trigger a run.
-- `prod-data-restore` — a restore drops and re-inserts collections, so change
-  units get replayed against the restored data; that is the idempotency scenario.
+- `prod-data-restore` — application restores drop imported collections but do
+  not reset Mongock history. Already-executed units will not replay just because
+  data was restored; required post-import index hooks belong in `RestoreService`.
 - `prod-deploy` — how the change unit reaches prod and runs there.
 - `prod-logs` — confirming the change unit executed on prod.

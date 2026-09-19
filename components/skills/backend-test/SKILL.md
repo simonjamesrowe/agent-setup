@@ -11,8 +11,9 @@ JaCoCo coverage verification — and they run in the same order in CI
 blocked by whichever fails first, so run them in that order when debugging.
 
 Work from `~/workspace/simonjamesrowe/simonrowe-dev-monorepo` (or a Conductor
-workspace clone). Gradle is a single-module build: `settings.gradle.kts` includes
-only `backend`, so `:backend:<task>` and root `check` reach the same tasks.
+workspace clone). Read `settings.gradle.kts` first. The build includes `backend` and
+`software-factory`; root `check` reaches both. Use `:backend:check` when
+scoping verification to the backend, and `:software-factory:check` when affected.
 
 ## When to use
 
@@ -24,7 +25,7 @@ only `backend`, so `:backend:<task>` and root `check` reach the same tasks.
 
 ## Prerequisites
 
-- Java 21 (the Gradle toolchain pins `JavaLanguageVersion.of(21)`).
+- Use the Java toolchain declared by the checkout (currently Java 25).
 - **Docker running.** Tests use Testcontainers, not the local compose stack —
   see step 2. You do *not* need `docker compose up`.
 - Nothing else: no `.env`, no infrastructure ports, no Auth0. `tasks.test` sets
@@ -36,7 +37,7 @@ only `backend`, so `:backend:<task>` and root `check` reach the same tasks.
 ### 1. Run the thing you actually changed
 
 ```bash
-./gradlew :backend:test                                       # whole suite (~74 test classes)
+./gradlew :backend:test                                       # whole backend suite
 ./gradlew :backend:test --tests 'com.simonrowe.blog.*'        # one package
 ./gradlew :backend:test --tests '*V014MakeFavouritesGlobalTest'
 ./gradlew :backend:test --tests '*V014MakeFavouritesGlobalTest.createsGlobalIndexesEnforcingUniqueTypeAndContent'
@@ -56,7 +57,7 @@ open backend/build/reports/tests/test/index.html
 
 - **MongoDB is a shared Testcontainer.** `backend/src/test/java/com/simonrowe/SharedMongoContainer.java`
   holds one `static MongoDBContainer("mongo:8")` started in a static initializer
-  and wires `spring.data.mongodb.uri` via `@DynamicPropertySource`. One container
+  and wires `spring.mongodb.uri` via `@DynamicPropertySource`. One container
   for the entire suite — **which means tests share a database**. Any test that
   writes must clean up after itself (`@BeforeEach` *and* `@AfterEach` drop /
   `deleteAll`), or it will poison an unrelated class.
@@ -124,7 +125,7 @@ open backend/build/reports/jacoco/test/html/index.html
 ```
 
 `jacocoTestCoverageVerification` enforces a single rule: **minimum `0.78`**
-(instruction coverage, whole-bundle, JaCoCo `0.8.12`). It is wired into
+(instruction coverage, whole-bundle, read the JaCoCo version from the catalogue). It is wired into
 `tasks.check`, so `./gradlew check` runs it.
 
 Both the report and the verification apply the same exclusion list from
@@ -212,8 +213,8 @@ Fix the violation, add the test, or explain why the exclusion list should change
 - `checkstyleTest` is easy to forget locally — run both checkstyle tasks together.
 - `jacocoTestReport` `dependsOn(tasks.test)`, so asking only for the report still
   runs the suite. There is no "report from the last run" shortcut.
-- The root project also has `check`; `./gradlew check` from the root is the same
-  gate as `:backend:check` plus nothing meaningful. `./gradlew test` from the root
+- Root `./gradlew check` also covers `software-factory`; use module-qualified
+  tasks when scoping a run. `./gradlew test` from the root
   does **not** include checkstyle or coverage.
 - Sonar needs `SONAR_TOKEN` and is skipped locally; do not treat a missing Sonar
   result as a failure.

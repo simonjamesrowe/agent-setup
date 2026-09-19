@@ -3,186 +3,93 @@ name: prod-data-restore
 description: Restore the latest simonrowe.dev production backup (Google Drive) into a local environment via the admin Data Ops UI. Use when local data is stale, missing, or a bug needs prod-like data to reproduce.
 ---
 
-# Restore Production Data Into Local
+# Restore production data into local
 
-Pulls the newest production backup out of Google Drive and imports it into the
-local MongoDB / uploads / Elasticsearch, using the backend's own Data Operations
-pipeline. Always prefer this over hand-rolled mongo commands: the pipeline
-handles `@DBRef` ordering, takes a safety backup, and rebuilds search state.
+Restore the latest **application backup** from Google Drive through the local
+admin Data Operations page. Use Playwright MCP with the existing browser profile.
+The backend downloads from Drive; opening Drive in the browser is unnecessary.
 
-## When to use
+## 1. Verify the destination
 
-- Local content is empty or months behind prod and you need real blogs, jobs,
-  skills, tags or media to work against.
-- Reproducing a bug that only shows up with production-shaped data.
-- After `Clear All Data`, or after a schema/migration change you want to re-run
-  against a realistic dataset.
-- **Not** for restoring *into* production — that is the same API, but treat it as
-  a production change and take a fresh backup first (see `prod-backup-ops`).
+Use `local-env` in the intended monorepo workspace. Confirm its frontend and
+backend are running and that the frontend targets that local backend. Default
+page: `http://localhost:5173/admin/data-operations`; use the workspace's actual
+ports if configured differently.
 
-## Prerequisites
+A request to restore **from production** means production data into local.
+Restoring **into production** needs an explicit production-restore request.
+For a skills audit, inspect access and backup availability without executing a
+restore. State that this does not prove archive integrity.
 
-- Repo at `~/workspace/simonjamesrowe/simonrowe-dev-monorepo` (or a Conductor
-  workspace clone of it).
-- `backend/.env` and `frontend/.env` present (copied from the private env repo).
-  The backend reads Google Drive credentials from these env var names:
-  `GOOGLE_DRIVE_CLIENT_ID`, `GOOGLE_DRIVE_CLIENT_SECRET`,
-  `GOOGLE_DRIVE_REFRESH_TOKEN`, `GOOGLE_DRIVE_FOLDER_ID`
-  (mapped to `google.drive.*` in `backend/src/main/resources/application.yml`).
-  If they are missing the backend logs a warning at boot and every backup /
-  restore / list call returns **503**.
-- One-time only, if there is no refresh token yet:
-  `./scripts/google-drive-auth.sh "$GOOGLE_DRIVE_CLIENT_ID" "$GOOGLE_DRIVE_CLIENT_SECRET"`
-  then store the printed refresh token in the env repo as
-  `GOOGLE_DRIVE_REFRESH_TOKEN`.
-- Admin identity: `admin@simonrowe.dev` with the `DEV_PORTAL_ADMIN` Auth0 role.
-  The password lives in the env repo — never inline it, read it from the
-  environment.
+## 2. Sign in with the existing session
 
-## Workflow
+Navigate to the admin page. If redirected to Auth0, choose **Continue with Google**
+and reuse Simon's cached Google session. After login, navigate back to Data
+Operations if the callback lands on the dashboard. The account must have
+`DEV_PORTAL_ADMIN`; a successful Google login alone does not grant admin access.
 
-### 1. Get the local stack running
+If Google asks for a password, passkey, MFA or a challenge, let Simon complete
+that browser step. Do not request credentials or tokens in chat. Use an env-backed
+password login only when the configured account and browser tooling support it
+without printing the secret. Inspect the page before filling credentials; avoid
+snapshots or screenshots of populated credential fields.
 
-Bring up infrastructure, backend and frontend — port deconfliction between
-Conductor workspaces and the individual start/stop scripts are all covered in
-`local-env`.
+Cached login belongs to the browser profile used by this MCP session; do not
+assume it shares cookies with normal Chrome or another workspace. See the
+[Playwright profile documentation](https://playwright.dev/mcp/configuration/user-profile).
 
-Confirm the backend is up and Drive is connected before going further:
+## 3. Select the latest application backup
 
-```bash
-curl -fsS http://localhost:8082/actuator/health          # management port, local
-curl -fsS -H "Authorization: Bearer $ADMIN_JWT" \
-  http://localhost:8080/api/admin/data-operations/status
-```
+Require **Google Drive: Connected**. Click **Choose Backup** in **Restore from
+Google Drive**, then read **Available Backups**. Select the newest application
+ZIP by creation time; record its filename, date and size. A backup older than
+24 hours should be reported and investigated with `prod-backup-ops`.
 
-(see [Alternatives](#alternatives) for how to obtain `$ADMIN_JWT`)
+The separate **Platform Data** list contains Postgres/ClickHouse archives;
+those are not inputs to this restore flow. Its restore procedure lives in the
+monorepo's `docs/runbooks/platform-backup-restore.md`.
 
-### 2. Open the Data Ops UI and sign in
+Drive access uses the backend's `GOOGLE_DRIVE_CLIENT_ID`,
+`GOOGLE_DRIVE_CLIENT_SECRET`, `GOOGLE_DRIVE_REFRESH_TOKEN` and
+`GOOGLE_DRIVE_FOLDER_ID`. Browser Google login authenticates the admin user;
+it does not replace these backend credentials.
 
-Target page: `http://localhost:5173/admin/data-operations`.
+## 4. Restore and wait for completion
 
-With browser automation (Playwright MCP in Claude Code): navigate there, click
-the Auth0 login, and sign in as `admin@simonrowe.dev` with the password read
-from the environment. Otherwise print these manual steps for the user and wait:
+Recheck the destination origin and local backend before selecting **Restore**.
+Confirm the selected archive in the UI dialog, then keep the progress page open
+until the operation reports `COMPLETED` or `FAILED`. An accepted request or
+100% progress alone is not the completion criterion.
 
-1. Open `http://localhost:5173` and log in as `admin@simonrowe.dev`.
-2. Go to **Admin** → **Data Operations**.
-3. Report back what the **Available Backups** panel lists.
+Restoring replaces application data and media. The backend creates a temporary
+safety ZIP, but deletes it when the operation ends, including on failure; it is
+not a durable rollback point or an automatic rollback. Preserve any needed local
+data before starting. Use the application's restore pipeline, not raw MongoDB
+writes or `mongorestore`.
 
-### 3. List the backups and pick the newest
+## 5. Verify the result
 
-The **Available Backups** panel shows one row per Drive file: file name
-(`backup-YYYYMMDD-HHmmss.zip`, UTC), created date, and formatted size. The
-newest row is the nightly job's output and should be less than 24 hours old.
-If the panel says "No backups found in Google Drive", stop — that is a backup
-problem, not a restore problem; go to `prod-backup-ops`.
+Open a restored blog and check text, dates and images. Exercise search and, when
+needed for the task, chat against known restored content. Record the archive,
+destination and terminal operation result.
 
-### 4. Restore it
+Restore already rebuilds search and imports available embeddings. Run **Rebuild
+Index** only if indexing failed or verification finds missing results. Run
+**Re-embed All** if embeddings were absent/incompatible or semantic verification
+fails; this can make paid model calls, so it is not a routine reassurance step.
 
-Click **Restore** on the newest row, then confirm in the **Confirm Restore**
-dialog (it warns that all current data will be replaced with that archive).
+## Failures and implementation reference
 
-What the backend actually does, in order:
+- `401` / `403`: refresh the login or check the admin role.
+- `503`: check backend Drive configuration; another Google browser login will
+  not repair a missing refresh token.
+- `409`: another data operation holds the lock; inspect status and wait.
+- Empty backup list: use `prod-backup-ops`; do not clear data to fix it.
+- Failed restore: preserve the error and inspect backend logs with `prod-logs`.
+  Do not claim that the temporary safety ZIP recovered the previous data.
 
-1. Creates a **local safety backup** ZIP of the current data first
-   (`BackupService.createLocalBackup()`, a temp file — it is *not* uploaded to
-   Drive, and it is deleted when the operation finishes).
-2. Downloads the archive from Drive and validates it has `manifest.json` and a
-   `collections/` directory.
-3. Drops and re-inserts each collection in **`@DBRef` dependency order** —
-   independent first: `tags`, `skills`, `profiles`, `social_medias`,
-   `tourSteps`, `media_assets`, `content_sources`, `aggregated_articles`,
-   `aggregated_events`; then dependent: `skill_groups`, `jobs`, `blogs`,
-   `code_examples`.
-4. Clears the uploads directory and extracts `uploads/**` from the archive.
-5. Runs `fullSyncSiteIndex()` + `fullSyncBlogIndex()` (Elasticsearch).
-6. Imports `embeddings/content-embeddings.json` if the archive has one.
-
-**Never** substitute `mongorestore` / `mongosh` for this flow. A raw dump
-restore skips the dependency ordering, the safety backup, the uploads sync and
-the index/embedding rebuild, and leaves dangling `@DBRef`s that surface as
-half-rendered blogs and empty skill groups.
-
-### 5. Watch progress
-
-The UI subscribes to `GET /api/admin/data-operations/progress`, a
-`text/event-stream` SSE endpoint, and renders the message + percentage. Leave
-the page open — closing it does not cancel the operation, but you lose the live
-feed and have to poll `GET /status` instead.
-
-Expect roughly: safety backup 5% → download 15% → validate 25% → collections
-30–65% → media 70% → search index 80% → embeddings 90% → done.
-
-### 6. Rebuild index and re-embed
-
-Once the restore reports success, trigger the two follow-ups from the same page:
-
-1. **Rebuild Search Index** (`POST /rebuild-index`) — site index then blog index.
-2. **Re-embed Content** (`POST /reembed`) — blogs, jobs, skills, code examples,
-   articles, events.
-
-The restore already rebuilt the search index and imported embeddings, so these
-are cheap re-assurance in the normal case — but they are **required** when the
-archive contained no `embeddings/content-embeddings.json` (the backend logs
-`No vector embeddings found in backup` when that happens), otherwise chat and
-semantic search return nothing.
-
-### 7. Verify
-
-```bash
-curl -fsS http://localhost:8080/api/blogs | head -c 400
-curl -fsS 'http://localhost:9200/_cat/indices?v'
-```
-
-Then load `http://localhost:5173`, open a blog page, and check images render and
-dates are present.
-
-## Alternatives
-
-**API instead of the UI** — when the SPA is broken or you want this scripted, every
-operation is available over HTTP under `/api/admin/data-operations`. See
-[references/data-ops-api.md](references/data-ops-api.md) for the full endpoint
-list, auth, status codes and `curl` examples.
-
-**Local tarball snapshots** — separate, local-only, and much faster for
-"snapshot before I break something" loops. Not connected to Drive:
-
-```bash
-./scripts/backup.sh    # writes ~/backups/backup-<UTC timestamp>.tar.gz
-./scripts/restore.sh   # restores the newest ~/backups/backup-*.tar.gz
-```
-
-Each tarball is a `mongodump` of the `simonrowe` database + `backend/uploads` +
-a real Elasticsearch filesystem snapshot (repo `simonrowe_backup`). Both scripts
-find the containers by image (`mongo:8`, `elasticsearch:8.17.0`), so the compose
-stack must be up. **Restart the backend after `./scripts/restore.sh`** — it uses
-`mongorestore --drop` underneath and the running app caches state.
-
-## Gotchas
-
-- **503 on `/backups`, `/backup` or `/restore`** = Google Drive is not connected.
-  Check the four `GOOGLE_DRIVE_*` env vars reached the backend process.
-- **409 on any POST** = another data operation is already in progress. Only one
-  runs at a time; poll `GET /status` and wait it out.
-- The nightly backup job runs at 22:00 Europe/London. Starting a restore inside
-  that window can lose the race and 409.
-- The safety backup is a temp file that is deleted in the `finally` block. It is
-  a crash cushion for the operation, not a restore point you can come back to —
-  take `./scripts/backup.sh` first if you care about the current local data.
-- The uploads directory is **wiped** before media is extracted. Anything you
-  uploaded locally and never backed up is gone.
-- Prod uploads path is `/workspace/uploads`; locally it is `backend/uploads/`
-  (`UPLOADS_PATH=uploads/` relative to the backend CWD, exported by
-  `start-backend.sh`). A restore respects whichever the running process uses.
-- `POST /clear` needs the confirmation phrase exactly `DELETE ALL DATA`, and it
-  does **not** touch Drive backups.
-- Auth0 tokens are short-lived. A restore that runs for minutes is fine (it is
-  async, server-side), but your next admin call may need a fresh token.
-
-## Related skills
-
-- `prod-backup-ops` — taking, verifying and pruning the Drive backups this skill consumes.
-- `local-env` — starting, stopping and port-deconflicting the local stack.
-- `prod-deploy` — shipping to prod; `POST /redeploy` lives on the same controller.
-- `prod-logs` — reading backend logs when a restore fails.
-- `prod-triage` — when prod itself, not local data, is the problem.
+For diagnosis, read `DataOperationsAdmin.tsx`, `RestoreService.java` and
+`BackupService.java` in the target checkout. Collection lists, index hooks and
+archive contents change with the application; do not copy an old list here.
+The [API reference](references/data-ops-api.md) covers status and auth details;
+the supported restore workflow remains the admin UI.

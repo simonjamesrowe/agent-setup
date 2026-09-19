@@ -61,9 +61,9 @@ sudden drop of an order of magnitude means media went missing, not that the
 backup got efficient.
 
 Via the UI instead: `https://www.simonrowe.dev/admin/data-operations` → the
-**Available Backups** panel lists the same rows. With browser automation
-(Playwright MCP in Claude Code) log in as `admin@simonrowe.dev` and read the
-table; otherwise print those steps and ask Simon for what he sees.
+**Available Backups** panel lists the same rows. Use Playwright MCP, reuse the Google/Auth0 admin session, and select
+**Choose Backup** to read the application archive list. Follow the login procedure
+in `prod-data-restore` if authentication is needed.
 
 ### 2. Take an on-demand backup
 
@@ -99,33 +99,20 @@ size is 1 MB (`GoogleDriveService.UPLOAD_CHUNK_SIZE_BYTES`); 10 MB is the
 **download** chunk size, also in `GoogleDriveService`, not `GoogleDriveConfig`.
 A large backup taking several minutes is normal.
 
-### 3. Know what is in a backup
+### 3. Distinguish application and platform backups
 
-The archive is a single ZIP:
+Application ZIP contents are defined by `BackupService` and `RestoreService` in
+the current checkout. They include application collections, uploads (including
+narration audio), school attachments and available embedding indexes. The old
+13-collection inventory is obsolete; inspect source when diagnosing omissions.
 
-```
-manifest.json                            # version 1.1, createdAt, per-collection doc counts
-collections/<name>.json                  # 13 collections, MongoDB extended JSON
-uploads/**                               # every regular file under the uploads dir
-embeddings/content-embeddings.json       # Elasticsearch vector export (best-effort)
-```
+Embeddings are best-effort: a successful backup can require re-embedding after
+restore. Check the operation result and logs, then test a local restore when
+archive integrity needs proving (`prod-data-restore`).
 
-The **13 collections**: `blogs`, `tags`, `skills`, `skill_groups`, `jobs`,
-`profiles`, `social_medias`, `tourSteps`, `media_assets`, `code_examples`,
-`aggregated_articles`, `aggregated_events`, `content_sources`.
-
-The embeddings export is best-effort — if it throws, the backend logs
-`Failed to export embeddings, skipping` and the backup still completes. Such an
-archive restores fine but leaves chat/semantic search empty until you run
-`POST /reembed`. Worth checking after an Elasticsearch incident.
-
-There is **no separate media-state sidecar file** in the Drive folder — media is
-embedded in each ZIP. Incremental media exists only as a *read* path: if an
-archive contains no `uploads/**` entries, `RestoreService` reads a `mediaSource`
-field from its `manifest.json` and fetches media from that named earlier backup.
-Current backups always embed their own uploads, so this only affects older
-archives — but it is the reason to prune with the retention job rather than by
-hand (see step 4).
+**Platform Data** is separate: Postgres/ClickHouse archives have their own Drive
+folder and retention. The Data Ops UI lists them but does not restore them.
+Read `docs/runbooks/platform-backup-restore.md` for that procedure.
 
 ### 4. Retention and pruning
 
@@ -135,17 +122,15 @@ runs automatically after every *successful* nightly backup — and only then; a
 failed backup skips the prune, so old files accumulate as a side effect of a
 broken job rather than being the problem itself.
 
-There is no dedicated prune endpoint. Options, in order of preference:
+There is no dedicated prune endpoint. Successful **scheduled** backups run
+retention; an on-demand `POST /backup` does not. If old files accumulate, diagnose
+the scheduler/retention logs rather than repeatedly pressing Backup Now.
+Application retention does not prune the separate platform folder.
 
-1. **Do nothing** — the nightly job prunes. If there are more than 7 backups, fix
-   the backup job (step 5); the prune will catch up.
-2. **Force a prune** by taking a successful on-demand backup — the retention
-   sweep is wired to the scheduled path, so an interactive `POST /backup` alone
-   does not prune. Prefer option 1.
-3. **Delete by hand** — from the Drive UI, or the Data Ops **Available Backups**
-   list. Only ever delete the *oldest* files, never a file that a newer archive's
-   `manifest.json` names in `mediaSource` (that would orphan the newer backup's
-   media). Deleting the newest backup is never right.
+Avoid manual deletion as routine cleanup. Before any explicitly requested
+pruning, inspect the current retention implementation and archive dependencies;
+legacy archives may refer to an older media source. Preserve the newest seven
+recoverable full backups.
 
 Pruning failures are non-fatal and per-file: one failed delete is logged
 (`Backup retention: failed to delete <name>`) and the sweep continues.

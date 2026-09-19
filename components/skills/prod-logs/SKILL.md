@@ -28,8 +28,8 @@ Portainer or the Pi.
   `https://logs-prod-035.grafana.net/loki/api/v1/push`, so queries go to
   `https://logs-prod-035.grafana.net/loki/api/v1/query_range`.
 - For Portainer: a browser, and Portainer's own local admin login.
-- For the Pi: no SSH from the dev machine — emit a copy-paste block and ask for
-  the output.
+- For Pi access, use [Raspberry Pi Connect](../prod-triage/references/raspberry-pi-connect.md).
+  Use manual copy-paste only if Connect is unavailable.
 
 **If a query returns `401 {"status":"error","error":"authentication error:
 invalid scope requested"}`, the credential lacks read.** `GRAFANA_CLOUD_API_KEY`
@@ -71,7 +71,7 @@ logs.
 ```bash
 LOKI=https://logs-prod-035.grafana.net/loki/api/v1/query_range
 
-curl -su "$GRAFANA_CLOUD_LOKI_USER:$GRAFANA_CLOUD_API_KEY" "$LOKI" \
+curl -fsSG -u "$GRAFANA_CLOUD_LOKI_USER:$GRAFANA_CLOUD_API_KEY" "$LOKI" \
   --data-urlencode 'query={container="simonrowe-dev-monorepo-backend-1"}' \
   --data-urlencode "start=$(date -u -v-30M +%s)000000000" \
   --data-urlencode "end=$(date -u +%s)000000000" \
@@ -85,7 +85,7 @@ form above is macOS; on Linux use `date -u -d '30 minutes ago' +%s`.
 Readable output:
 
 ```bash
-curl -su "$GRAFANA_CLOUD_LOKI_USER:$GRAFANA_CLOUD_API_KEY" "$LOKI" \
+curl -fsSG -u "$GRAFANA_CLOUD_LOKI_USER:$GRAFANA_CLOUD_API_KEY" "$LOKI" \
   --data-urlencode 'query={container="simonrowe-dev-monorepo-backend-1"} |= "ERROR"' \
   --data-urlencode "start=$(date -u -v-1H +%s)000000000" \
   --data-urlencode 'limit=100' --data-urlencode 'direction=backward' \
@@ -131,12 +131,11 @@ Browser automation works well here: with browser automation (Playwright MCP in
 Claude Code) navigate, sign in, open the container's Logs tab and read/screenshot
 the output. Otherwise print those steps for Simon and ask for the log excerpt.
 
-Portainer is the best option for the four excluded containers, and the only
-option when Loki ingest is lagging.
+Use Portainer or the Connect remote shell when Loki omits or delays logs.
 
 ### 5. On the Pi
 
-Emit this single block for Simon to run on the Pi, then ask for the output:
+Run in the Connect remote shell and read the output:
 
 ```bash
 cd ~/workspace/simonjamesrowe/simonrowe-dev-monorepo && docker compose -f docker-compose.prod.yml logs --since 30m backend nginx
@@ -176,9 +175,9 @@ Be honest about this rather than inventing a dashboard:
   and its basic-auth block are commented out: `GRAFANA_CLOUD_TEMPO_ENDPOINT`
   points at `gb-south-1` while the account's Tempo instance is US region (HTTP
   404). Loki push on the US cluster works with the same key.
-- **Only Spring AI spans reach Langfuse.** The `ai_only` filter drops any span
-  without `gen_ai.operation.name`, `gen_ai.system` or `spring.ai.kind` — so
-  HTTP-server, MongoDB and manual `@WithSpan` spans go nowhere. Chat generations,
+- **AI spans and parent chat turns reach Langfuse.** The filter keeps
+  `gen_ai.operation.name`, `gen_ai.system`, `spring.ai.kind` or
+  `langfuse.trace.name`. Ordinary HTTP/database spans are excluded. Chat generations,
   embeddings and tool calls are visible at `https://langfuse.simonrowe.dev`.
 - **No metrics are collected.** `/actuator/prometheus` is exposed on the backend's
   management port but nothing scrapes it; there is no Prometheus, no Grafana Cloud
@@ -196,8 +195,8 @@ Be honest about this rather than inventing a dashboard:
   old, Loki may have nothing and the Pi's `docker logs` is your only source.
 - `container` includes the `-1` replica suffix. `simonrowe-dev-monorepo-backend`
   matches nothing; use `simonrowe-dev-monorepo-backend-1` or a regex matcher.
-- After a redeploy the transient `backend-restarter` helper container also ships
-  logs (it is not compose-labelled, so it has no `service` label).
+- Current deployments run in `deployer`; inspect its logs alongside
+  `software-factory` when a deployment stops advancing.
 - `alloy` reads `/var/run/docker.sock` read-only. If it is unhealthy, nothing
   ships and Loki looks deceptively quiet — check `alloy`'s own logs first.
 
