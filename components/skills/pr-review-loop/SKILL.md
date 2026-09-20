@@ -149,6 +149,12 @@ tested, and anything a reviewer should look at first. If the change has a
 deliberate omission or an accepted trade-off, say so in the body — that is where a
 declined finding gets justified in step 5.
 
+For behavioral changes like timeouts or limits, state the actual configured
+value ("timeout raised to 30s"), not just the direction of change ("timeout
+increased") — a reviewer cannot verify the code matches a description that
+never says what it now is. If the implementation changes after the description
+was written, update the description to match.
+
 Pushing a branch runs nothing. `ci.yml` triggers on `pull_request` only, so the
 pull request is what starts CI.
 
