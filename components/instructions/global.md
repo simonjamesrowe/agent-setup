@@ -71,6 +71,11 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
 - **Scope bug fixes to your PR's new code.** When a finding applies to both new
   and pre-existing code, fix only the new occurrences and raise pre-existing
   instances as a separate, focused technical-debt PR.
+- **Enforce query cardinality invariants at the database layer**, not in
+  application code. If a query method like `findFirst()` assumes a field is
+  unique, back that assumption with a unique (sparse) index rather than trusting
+  callers to maintain it, and add a test that verifies both duplicate rejection
+  and valid multi-record operations.
 
 ## Git conventions (this org)
 
