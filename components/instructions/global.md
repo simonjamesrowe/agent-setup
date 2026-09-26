@@ -39,6 +39,23 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   redirect-following on HTTP clients doing security-sensitive fetches, then
   validate each hop's destination before requesting it, to prevent SSRF via
   redirect chains.
+- **Classify by final destination, not the requested URL.** When a fetch
+  follows redirects, attribute resource properties (source type, host origin,
+  etc.) based on the resolved destination after redirects — attributing them
+  from the initial URL misattributes third-party content to the original
+  source.
+- **Apply constraints at the operation boundary, not in a one-off
+  post-processing pass.** A scope or constraint that must always hold on a
+  resource belongs inside the core operation that produces it, so it persists
+  across every invocation instead of being lost on re-fetches that skip the
+  post-processing step.
+- **When a fix would create a worse problem, document the tradeoff instead of
+  leaving it implicit.** State the constraint and why it's accepted directly
+  in the code or PR so future maintainers know the fragility exists before
+  they touch the surrounding code.
+- **Match the tool to the actual problem.** Don't reach for an optimization
+  technique built for a different problem class; use the simplest solution
+  that directly addresses the performance or correctness issue at hand.
 - **Keep defensive null checks on third-party library return values** even if
   static analysis flags them unreachable — third-party behavior varies by
   version, and the check is cheaper than the NPE from a future dependency
