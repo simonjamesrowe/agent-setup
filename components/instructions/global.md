@@ -88,6 +88,11 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   failures.** Treat a missing tool as "cannot probe" rather than a failure, and
   verify every probe tool actually exists in each target image before relying
   on it.
+- **Domain objects holding sensitive byte arrays (e.g. images) need
+  content-based `equals()`/`hashCode()` and a `toString()` that redacts the
+  field.** The default identity/array behavior leaks raw bytes into logs and
+  breaks equality; add a regression test asserting the sensitive data appears
+  in neither the string output nor equality checks.
 
 ## Git conventions (this org)
 
