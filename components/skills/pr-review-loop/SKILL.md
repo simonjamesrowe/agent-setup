@@ -494,7 +494,9 @@ summary names:
 1. its flag is on
 2. the PR is not a draft
 3. the head is in this repository, not a fork
-4. the author is `OWNER`/`MEMBER`/`COLLABORATOR`
+4. the author has `write` or `admin` permission on the repository (read from the
+   permission API, not `author_association`, which an App token misreads for a
+   private org member)
 5. there is no `no-auto-merge` or `agent-feedback` label
 6. `Code Review` is green
 7. the head has not moved since the review
