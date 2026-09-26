@@ -76,6 +76,13 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   unique, back that assumption with a unique (sparse) index rather than trusting
   callers to maintain it, and add a test that verifies both duplicate rejection
   and valid multi-record operations.
+- **Critical verification checks in scripts must exit non-zero on failure**, not
+  just warn — a warning is invisible to automation. In a multi-step installer,
+  put the verification last and let earlier successful steps stay installed
+  rather than rolling everything back when the final check fails.
+- **Scope test assertions to the specific code path under test**, not a global
+  search. A bare `grep 'exit 1'` also matches unrelated error handlers and hides
+  a failure; use sed ranges, line numbers, or variable-scoped patterns instead.
 
 ## Git conventions (this org)
 
