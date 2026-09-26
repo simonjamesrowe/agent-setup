@@ -442,11 +442,19 @@ it back with what you tried and what is still failing. Looping on something that
 will not go green wastes tokens and buries the signal — the same bound
 `dependency-cve-fix` applies.
 
-## 7. Decide the merge disposition — and arm auto-merge if it earns it
+## 7. Read the merge disposition — the reviewer arms auto-merge, not you
 
-**Do not decide this by judgement.** The repository ships a classifier; run it. A
-default-deny path list is testable as a script and rots invisibly as prose, which is
-why it is not written out here:
+**Do not run `gh pr merge --auto`.** Since simonrowe-dev-monorepo #192 the code reviewer
+(`software-factory`) decides and arms auto-merge itself, at the end of every published
+review. That keeps the decision out of the session that wrote the code. An arm you make
+yourself is also actively harmful: it is armed *as a person*, the reviewer deliberately
+never withdraws a person's arm, so yours would survive every later push. That includes
+a push that adds `docker-compose.prod.yml`, which merges unattended on a decision made
+about different paths.
+
+What the reviewer arms on is the same classifier the repository ships, so run it to
+know what to expect and whether screenshots are owed. A default-deny path list is
+testable as a script and rots invisibly as prose, which is why it is not written out here:
 
 ```bash
 scripts/classify-change.sh origin/main
@@ -457,13 +465,47 @@ printf 'backend/src/main/java/A.java\n' | scripts/classify-change.sh
 It prints two lines — `category=auto-merge|ux-review|manual` and
 `ux_affecting=true|false` — and **exits 0 for every category, `manual` included**.
 "Needs a human" is an answer, not an error; a non-zero exit means the script itself
-broke.
+broke. **It diffs commits**, so run it after committing: an uncommitted change reads
+as an empty diff, which is `manual`.
 
-| `category` | What you do |
-| --- | --- |
-| `auto-merge` | `gh pr merge <pr> --auto --squash`, and say so in the pull request body |
-| `ux-review` | **no auto-merge.** Capture screenshots of the affected screens, attach them, state why the merge is being left to a human |
-| `manual` | **no auto-merge.** State in the body which path forced it |
+Then read what the reviewer decided. Two reads, because they answer different
+questions:
+
+```bash
+# What the reviewer decided, and why: one line in its summary comment
+gh api repos/simonjamesrowe/simonrowe-dev-monorepo/issues/<pr>/comments \
+  --jq '.[] | select(.user.login=="simonrowe-software-factory[bot]") | .body' \
+  | grep '^\*\*Auto-merge:\*\*'
+
+# What is actually armed right now, and by whom
+gh api repos/simonjamesrowe/simonrowe-dev-monorepo/pulls/<pr> \
+  --jq '.auto_merge | if . then "\(.enabled_by.login) (\(.enabled_by.type))" else "not armed" end'
+```
+
+| `category` | What the reviewer does | What you do |
+| --- | --- | --- |
+| `auto-merge` | arms squash auto-merge if every rule passes | confirm the summary line says `armed` and `auto_merge.enabled_by.type` is `Bot`; if it says `not armed: <reason>`, report the reason |
+| `ux-review` | does not arm | capture screenshots of the affected screens, attach them, state why the merge is left to a human |
+| `manual` | does not arm; the summary names the path | state in the body which path forced it |
+
+The reviewer arms only if **every** rule passes. The first rule to fail is what the
+summary names:
+
+1. its flag is on
+2. the PR is not a draft
+3. the head is in this repository, not a fork
+4. the author has `write` or `admin` permission on the repository (read from the
+   permission API, not `author_association`, which an App token misreads for a
+   private org member)
+5. there is no `no-auto-merge` or `agent-feedback` label
+6. `Code Review` is green
+7. the head has not moved since the review
+8. every changed path, including the old side of a rename, classifies `auto-merge`
+
+The full policy is in the monorepo's `docs/runbooks/pr-governance.md` ("Auto-merge
+policy"). **No `**Auto-merge:**` line at all** means the reviewer's flag
+(`FACTORY_CODEREVIEW_AUTO_MERGE_ENABLED`) is off. In that case the merge is a human's:
+report that, and do not arm it yourself to compensate.
 
 Precedence is highest-first: `manual` paths (compose files, `scripts/**`, `config/**`,
 `.github/**`, `gradle*`, root build files, `frontend/*.config.*`,
@@ -473,16 +515,17 @@ deploy against the Pi**, and `036-auto-deploy-rollout-fixes` is a nine-item cata
 of ways those fail that no test catches. An unrecognised path is `manual`, never
 `auto-merge`, so a new top-level directory defaults to needing a human.
 
-**`--auto` is the merge mechanism, not permission to stop watching.** GitHub merges
-when the gate is satisfied; it will sit there indefinitely if it never is. Finish steps
-4–6 and report the real state either way. Two traps:
+**Armed is not permission to stop watching.** GitHub merges when the gate is
+satisfied, and it will wait indefinitely if the gate never opens. Finish steps 4–6 and
+report the real state either way. Three traps:
 
-- **`--auto` is rejected on a pull request that is already mergeable** ("clean
-  status"). If every check is already green, either merge outright with
-  `gh pr merge <pr> --squash` or accept the error — it means the gate is already
-  satisfied, not that arming failed.
 - **Arming auto-merge does not resolve anything.** An unresolved conversation from
   step 4c holds the merge forever with no error message. Clear those first.
+- **A fix you push is re-decided, not carried over.** The reviewer withdraws its own arm
+  at the start of every review and re-arms only if the new commit also qualifies. A
+  window with nothing armed while that review runs is normal.
+- **To stop an armed PR from merging, disable auto-merge on it in GitHub.** Adding
+  `no-auto-merge` takes effect only at the next review, i.e. the next push.
 
 **Never merge to satisfy this step.** If the classifier says `ux-review` or `manual`,
 the disposition *is* the deliverable — hand it over with the classification named.
@@ -504,10 +547,10 @@ State all six:
   `coverage` measure existed. "Gate OK, no coverage measured" is a half-working
   analysis, not a pass. If the `Static Analysis` job was red, say the analysis did not
   run rather than reporting whatever stale figure the API returns.
-- **Merge disposition** — the `category` the classifier returned, and what you did
-  about it: auto-merge armed, screenshots captured, or left to a human with the
-  reason. Say whether the pull request is actually mergeable now or still held, and by
-  what.
+- **Merge disposition** — the `category` the classifier returned, the reviewer's
+  `**Auto-merge:**` line (armed, or not armed with its reason), and what you did:
+  screenshots captured, or left to a human with the reason. Say whether the pull
+  request is actually mergeable now or still held, and by what.
 
 **Report the `Code Review` check explicitly, including when it is absent.** "The
 reviewer was quiet" is not a report — an absent check is an unmergeable pull request,
@@ -521,7 +564,7 @@ If you hit the iteration bound, say that plainly and say what is still failing.
 - `code-review-triage` — when the reviewer posts nothing, or says it did not complete
 - `dependency-cve-fix` — the same loop, scoped to Dependency-Track findings
 - `docs/runbooks/pr-governance.md` (monorepo) — the ruleset, the fingerprinted
-  threads, the `Code Review` check, and the auto-merge policy this skill enacts
+  threads, the `Code Review` check, and the auto-merge policy the reviewer enacts
 - `docs/runbooks/static-analysis.md` (monorepo) — what the `sonar` job does, the
   operator setup it needs, and its six failure modes
 - `docs/runbooks/software-factory.md` (monorepo) — the reviewer bot's architecture
