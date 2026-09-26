@@ -83,6 +83,11 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
 - **Scope test assertions to the specific code path under test**, not a global
   search. A bare `grep 'exit 1'` also matches unrelated error handlers and hides
   a failure; use sed ranges, line numbers, or variable-scoped patterns instead.
+- **When a script probes tools across container images with different
+  toolsets, distinguish exit codes 126/127 (tool not found) from genuine
+  failures.** Treat a missing tool as "cannot probe" rather than a failure, and
+  verify every probe tool actually exists in each target image before relying
+  on it.
 
 ## Git conventions (this org)
 
