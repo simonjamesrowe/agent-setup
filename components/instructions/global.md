@@ -125,6 +125,8 @@ Reach for these before improvising:
 - `blog-publish` — research, draft, illustrate and publish a first-party post
 - `frontend-design` — visual direction when building or restyling UI
 - `embabel-guide` — run the Embabel docs MCP server when authoring agent code
+- `demo-plan` — grill for a product demo's aim and messages, draft the script, get approval
+- `demo-record` — turn an approved demo script into a narrated MP4 (Google TTS + Playwright + ffmpeg)
 
 ## Planning before building
 

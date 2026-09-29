@@ -12,6 +12,7 @@ categories, one repo instead of a shared monorepo skills package.
   - `prod-` — production operations (deploy, logs, triage, backups, restore)
   - `backend-` — backend build/test tooling
   - `content-` — content-aggregation pipeline
+  - `demo-` — narrated product demo videos
   - `chat-` — the chatbot surface
   - `langfuse-` — LLM observability
   - `local-` — local development environment
