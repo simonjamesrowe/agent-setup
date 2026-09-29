@@ -16,7 +16,7 @@ plugins for whichever of the three it finds on your `PATH`.
 
 | | Claude Code | Gemini CLI | Codex |
 | --- | --- | --- | --- |
-| Org skills (18) | ✅ `~/.claude/skills/` | ✅ `~/.gemini/skills/` | ✅ `~/.codex/skills/` |
+| Org skills (20) | ✅ `~/.claude/skills/` | ✅ `~/.gemini/skills/` | ✅ `~/.codex/skills/` |
 | Instructions | ✅ `CLAUDE.md` | ✅ `GEMINI.md` | ✅ `AGENTS.md` |
 | MCP servers | ✅ | ✅ | ✅ |
 | `mattpocock-skills` (25 skills) | ✅ plugin | ✅ via `gemini skills install` | ✅ plugin |
@@ -79,6 +79,8 @@ Without `--tools`, `agent-setup` auto-detects which of `claude`, `gemini` and
 | `chat-e2e-verify`      | Browser-driven quality check of the simonrowe.dev chatbot against a local environment. |
 | `code-review-triage`   | Diagnose why the automated code reviewer did not review a pull request on simonrowe.dev. |
 | `content-source-add`   | Add a new content-aggregation source (blog/news/events scraper) to simonrowe.dev. |
+| `demo-plan`            | Grill Simon on a product demo's aim, audience and key messages, then draft a scene-by-scene script for approval. |
+| `demo-record`          | Build a narrated demo video from an approved script: Google Cloud TTS voice-over, full-viewport Playwright recording across sites, hand-drawn Excalidraw diagram walkthroughs, ffmpeg mix to MP4 with captions. |
 | `dependency-cve-fix`   | Fix OWASP Dependency-Track CVE findings in simonrowe.dev by bumping the affected dependency, opening a PR, and driving CI to green. |
 | `embabel-guide`        | Run the Embabel docs MCP server (`embabel/guide`) locally and register it, for authoring Embabel agent code on the JVM. |
 | `frontend-design`      | Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. |
@@ -217,7 +219,7 @@ has no `plugin enable`.
 subdirectory. The two paths are `skills/engineering` and `skills/productivity`
 rather than `skills` — the repo also carries `skills/in-progress` (8) and
 `skills/misc` (4), which the upstream plugin manifest deliberately excludes.
-These land in `~/.gemini/skills/` alongside this repo's own 18 skills; there is
+These land in `~/.gemini/skills/` alongside this repo's own 20 skills; there is
 no name collision today, and neither set clobbers the other.
 
 **`grill-me` is invisible to the model, by design.** It ships
