@@ -93,6 +93,14 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   field.** The default identity/array behavior leaks raw bytes into logs and
   breaks equality; add a regression test asserting the sensitive data appears
   in neither the string output nor equality checks.
+- **Document actual implementation behavior for calculated or timed
+  operations.** When docs describe a formula or timing rule, make sure it
+  matches every code path, not just the common one; use the same formula for
+  estimates/validations as the one execution actually applies.
+- **Prefer runtime feature detection over bumping a minimum version** when
+  code wants a newer optional API. Detect the feature and fall back
+  gracefully instead of raising `engines`/`package.json` version constraints,
+  so the package still works for users on older runtimes.
 
 ## Git conventions (this org)
 
