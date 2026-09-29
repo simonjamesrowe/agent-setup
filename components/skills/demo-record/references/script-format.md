@@ -44,14 +44,18 @@ export default {
 
 ## Scene timing
 
-A scene lasts `max(action, narration) + gap`. `order` decides where the
-narration sits relative to the action:
+`order` decides where the narration sits relative to the action, and so how
+long the scene lasts:
 
-| `order` | Use it for |
-| --- | --- |
-| `together` (default) | Narrating while the thing happens: clicking, typing, scrolling |
-| `do-then-say` | Getting somewhere first, then describing it: navigation, a slow load, an answer streaming in |
-| `say-then-do` | Setting up a payoff: "watch what happens when I submit" followed by the submit |
+| `order` | Scene length | Use it for |
+| --- | --- | --- |
+| `together` (default) | `max(action, narration) + gap` | Narrating while the thing happens: clicking, typing, scrolling |
+| `do-then-say` | `action + narration + gap` | Getting somewhere first, then describing it: navigation, a slow load, an answer streaming in |
+| `say-then-do` | `narration + action + gap` | Setting up a payoff: "watch what happens when I submit" followed by the submit |
+
+`plan` applies the same formulas. Action times come from the last `rehearse`
+(or `build`), and a scene whose action has changed since then is marked `+`
+in the estimate until it is rehearsed again.
 
 A scene without `say` is silent and lasts as long as its action. Keep silent
 stretches under about two seconds.

@@ -1,5 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -40,6 +41,18 @@ test('plan renders the approval table and writes plan.md', () => {
   assert.match(res.stdout, /\| 2 \| `click` \| Cursor opens a widget \| _\(silent\)_ \|/);
   assert.match(res.stdout, /\| 3 \| `outro` \|/);
   assert.ok(fs.existsSync(path.join(dir, 'plan.md')));
+});
+
+test('plan marks unrehearsed actions and adds measured time for do-then-say', () => {
+  const dir = demoDir(VALID);
+  assert.match(runner('plan', dir).stdout, /\| `click` \| .* \| ~1s\+ \|/);
+  // What rehearse writes: measured action seconds, keyed to the action's source.
+  const key = crypto.createHash('sha256').update('async () => {}').digest('hex').slice(0, 16);
+  fs.mkdirSync(path.join(dir, '.build'));
+  fs.writeFileSync(path.join(dir, '.build', 'action-times.json'), JSON.stringify({ click: { action: 5, key } }));
+  const res = runner('plan', dir);
+  assert.match(res.stdout, /\| `click` \| .* \| ~6s \|/);
+  assert.match(res.stdout, /action times from the last rehearsal/);
 });
 
 test('outro must be exactly two sentences', () => {

@@ -84,22 +84,23 @@ Shape it as a story:
 - Put sign-in and dismissing banners in `setup`; they are trimmed.
 - End with the brief's two-sentence `outro`, verbatim.
 
-Then generate the approval table and rehearse the actions:
+Then rehearse the actions, which also measures how long each one takes, and
+generate the approval table from those measurements:
 
 ```bash
-node $DEMO plan ~/workspace/simonjamesrowe/demos/<slug>       # writes plan.md
 node $DEMO rehearse ~/workspace/simonjamesrowe/demos/<slug> --headless
+node $DEMO plan ~/workspace/simonjamesrowe/demos/<slug>       # writes plan.md
 ```
 
-The draft is ready once `rehearse` passes every scene and the estimated
-length fits the brief.
+The draft is ready once `rehearse` passes every scene, the table has no `+`
+(unrehearsed) estimates, and the estimated length fits the brief.
 
 ### 5. Approval gate
 
 Show Simon the `plan.md` table (scene, on screen, narration, seconds), the
 estimated length, and a line per key message naming the scene that carries
-it. Ask him to approve or change it. Apply each tweak, re-run `plan` (and
-`rehearse` when an action changed), and show the table again.
+it. Ask him to approve or change it. Apply each tweak, re-run `rehearse`
+when an action changed and then `plan`, and show the table again.
 
 Offer a voice check before the full build: `node $DEMO narrate <dir>` voices
 every line (cached for the build) so Simon can play a clip or two with `afplay`.

@@ -389,7 +389,12 @@ async function record(demo, clips, { headed = false, capture = true } = {}) {
       current = scene.id;
       const start = now() - t0;
       const say = scene.say ? narrationFor(scene) : 0;
-      const act = () => (scene.do ? scene.do(h) : null);
+      let action = 0;
+      const act = async () => {
+        const began = now();
+        if (scene.do) await scene.do(h);
+        action = now() - began;
+      };
       let audioStart = start;
       if (scene.order === 'do-then-say') {
         await act();
@@ -401,7 +406,7 @@ async function record(demo, clips, { headed = false, capture = true } = {}) {
       } else {
         await Promise.all([act(), sleep(say * 1000)]);
       }
-      timeline.push({ id: scene.id, start, audioStart, audioDuration: say, text: scene.say || '' });
+      timeline.push({ id: scene.id, start, audioStart, audioDuration: say, action, text: scene.say || '' });
       console.log(`  ✓ ${scene.id} (${(now() - t0 - start).toFixed(1)}s)`);
       await sleep((scene.gap ?? 0.6) * 1000);
     }
@@ -595,18 +600,59 @@ async function cmdCheck(dir) {
   process.exit(ok ? 0 : 1);
 }
 
+// `together` overlaps action and narration; the other two orders run them back to back.
+function sceneSeconds(order, action, say) {
+  return order === 'do-then-say' || order === 'say-then-do' ? action + say : Math.max(action, say);
+}
+
+// Action timings measured by the last rehearse/build, keyed to each action's
+// source so an edited action is never estimated from a stale measurement.
+const actionKey = (scene) => createHash('sha256').update(String(scene.do || '')).digest('hex').slice(0, 16);
+const actionTimesFile = (demo) => path.join(demo.buildDir, 'action-times.json');
+
+function saveActionTimes(demo, rec) {
+  const times = {};
+  for (const scene of demo.cfg.scenes) {
+    const t = rec.timeline.find((x) => x.id === scene.id);
+    if (t) times[scene.id] = { action: t.action, key: actionKey(scene) };
+  }
+  fs.mkdirSync(demo.buildDir, { recursive: true });
+  fs.writeFileSync(actionTimesFile(demo), JSON.stringify(times, null, 2));
+}
+
+function cachedClips(demo) {
+  const cached = new Map();
+  for (const item of narrationItems(demo)) {
+    const file = clipFile(demo, item);
+    if (fs.existsSync(file) && has('ffprobe')) cached.set(item.id, { file, duration: probeDuration(file) });
+  }
+  return cached;
+}
+
 async function cmdPlan(dir) {
   const demo = await loadDemo(dir);
-  const rows = [...demo.cfg.scenes.map((s) => ({ id: s.id, show: s.show, say: s.say || '_(silent)_', gap: s.gap ?? 0.6 })),
-    { id: OUTRO_ID, show: 'End card: title, the two outro sentences, link', say: demo.cfg.outro.trim(), gap: demo.cfg.tail ?? 1.5 }];
-  let total = 0;
-  const cell = (s) => String(s).replace(/\|/g, '\\|').replace(/\n/g, ' ');
-  const table = rows.map((r, i) => {
-    const secs = estimateSeconds(r.say.startsWith('_(') ? '' : r.say) + r.gap;
-    total += secs;
-    return `| ${i + 1} | \`${r.id}\` | ${cell(r.show)} | ${cell(r.say)} | ~${secs.toFixed(0)}s |`;
+  const file = actionTimesFile(demo);
+  const measured = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : {};
+  const clips = cachedClips(demo);
+  const sayFor = (id, text) => clips.get(id)?.duration ?? estimateSeconds(text);
+  let unmeasured = 0;
+  const rows = demo.cfg.scenes.map((s) => {
+    const m = measured[s.id];
+    const known = !s.do || (m && m.key === actionKey(s));
+    if (!known) unmeasured++;
+    const secs = sceneSeconds(s.order, known && s.do ? m.action : 0, s.say ? sayFor(s.id, s.say) : 0) + (s.gap ?? 0.6);
+    return { id: s.id, show: s.show, say: s.say || '_(silent)_', secs, known };
   });
-  const md = `# ${demo.cfg.title}\n\n${demo.cfg.url}\n\n| # | Scene | On screen | Narration | Est. |\n| --- | --- | --- | --- | --- |\n${table.join('\n')}\n\n**Estimated length: ~${Math.round(total)}s** (narration at ${Math.round(WORDS_PER_SECOND * 60)} wpm; scenes whose action outlasts the narration run longer).\n`;
+  rows.push({ id: OUTRO_ID, show: 'End card: title, the two outro sentences, link', say: demo.cfg.outro.trim(),
+    secs: 0.7 + sayFor(OUTRO_ID, demo.cfg.outro) + (demo.cfg.tail ?? 1.5), known: true });
+  const total = rows.reduce((n, r) => n + r.secs, 0);
+  const cell = (s) => String(s).replace(/\|/g, '\\|').replace(/\n/g, ' ');
+  const table = rows.map((r, i) => `| ${i + 1} | \`${r.id}\` | ${cell(r.show)} | ${cell(r.say)} | ~${r.secs.toFixed(0)}s${r.known ? '' : '+'} |`);
+  const basis = [
+    clips.size ? 'narration from voiced clips' : `narration estimated at ${Math.round(WORDS_PER_SECOND * 60)} wpm`,
+    unmeasured ? `${unmeasured} scene action(s) not yet rehearsed, marked + (run \`rehearse\`, then \`plan\` again)` : 'action times from the last rehearsal',
+  ].join('; ');
+  const md = `# ${demo.cfg.title}\n\n${demo.cfg.url}\n\n| # | Scene | On screen | Narration | Est. |\n| --- | --- | --- | --- | --- |\n${table.join('\n')}\n\n**Estimated length: ~${Math.round(total)}s${unmeasured ? '+' : ''}** (${basis}).\n`;
   fs.writeFileSync(path.join(demo.demoDir, 'plan.md'), md);
   console.log(md);
 }
@@ -622,13 +668,9 @@ async function cmdNarrate(dir) {
 async function cmdRehearse(dir, argv) {
   const demo = await loadDemo(dir);
   console.log('rehearsing (no recording, narration timed by estimate or cached audio)…');
-  const cached = new Map();
-  for (const item of narrationItems(demo)) {
-    const file = clipFile(demo, item);
-    if (fs.existsSync(file) && has('ffprobe')) cached.set(item.id, { file, duration: probeDuration(file) });
-  }
-  const rec = await record(demo, cached, { headed: !argv.includes('--headless'), capture: false });
-  console.log(`rehearsal ok — ~${rec.end.toFixed(0)}s`);
+  const rec = await record(demo, cachedClips(demo), { headed: !argv.includes('--headless'), capture: false });
+  saveActionTimes(demo, rec);
+  console.log(`rehearsal ok — ~${rec.end.toFixed(0)}s (action times saved for \`plan\`)`);
 }
 
 async function cmdBuild(dir, argv) {
@@ -638,6 +680,7 @@ async function cmdBuild(dir, argv) {
   const clips = await narrate(demo);
   console.log('2/4 recording');
   const rec = await record(demo, clips, { headed: argv.includes('--headed') });
+  saveActionTimes(demo, rec);
   fs.mkdirSync(demo.outDir, { recursive: true });
   const outFile = path.join(demo.outDir, `${demo.slug}.mp4`);
   console.log(`3/4 mixing ${rec.frames.length} frames + ${clips.size} clips`);
