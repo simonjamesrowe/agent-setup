@@ -27,7 +27,11 @@ import { DIAGRAM_DEPS, diagramDepsInstalled, diagramHelpers, startDiagramServer 
 
 const TTS_URL = 'https://texttospeech.googleapis.com/v1';
 const DEFAULT_ENV_FILE = path.join(os.homedir(), 'workspace', 'simonjamesrowe', 'env');
-const DEFAULT_VOICE = { name: 'en-GB-Chirp3-HD-Charon', languageCode: 'en-GB' };
+// The site's narration voice: the default of GOOGLE_CLOUD_TTS_VOICE_NAME /
+// _LANGUAGE_CODE in the monorepo's application.yml and docker-compose.prod.yml.
+// Pinned here rather than read from the env so a stale local env file cannot
+// give demos a different voice from the site. Name and locale change together.
+const SITE_VOICE = { name: 'en-AU-Chirp3-HD-Achird', languageCode: 'en-AU' };
 const WORDS_PER_SECOND = 2.6;
 const FPS = 30;
 const OUTRO_ID = 'outro';
@@ -101,11 +105,7 @@ async function loadDemo(dir) {
   if (outro.length !== 2) errors.push(`outro must be exactly two sentences (found ${outro.length}) — it closes every demo`);
   if (errors.length) die(`invalid script.mjs:\n  - ${errors.join('\n  - ')}`);
   const viewport = { width: 1920, height: 1080, ...(cfg.viewport || {}) };
-  const voice = {
-    name: process.env.GOOGLE_CLOUD_TTS_VOICE_NAME || DEFAULT_VOICE.name,
-    languageCode: process.env.GOOGLE_CLOUD_TTS_LANGUAGE_CODE || DEFAULT_VOICE.languageCode,
-    ...(cfg.voice || {}),
-  };
+  const voice = { ...SITE_VOICE, ...(cfg.voice || {}) };
   const slug = cfg.slug || path.basename(demoDir);
   return { cfg, demoDir, slug, viewport, voice, buildDir: path.join(demoDir, '.build'), outDir: path.join(demoDir, 'out') };
 }
@@ -542,7 +542,7 @@ export default {
   title: 'TODO product name — what it does',
   url: 'https://example.com',
   // link: 'example.com',               // shown on the end card (defaults to the url's host)
-  // voice: { name: 'en-GB-Chirp3-HD-Charon', languageCode: 'en-GB', speakingRate: 1.0 },
+  // voice: { speakingRate: 1.05 },     // defaults to the site's voice, en-AU-Chirp3-HD-Achird
   // pronounce: { 'example.com': 'example dot com' },   // voice-only substitutions
   // storageState: 'auth.json',         // Playwright storage state for signed-in demos
   // setup: async ({ page }) => {},     // runs before the clock starts; trimmed from the video
@@ -604,8 +604,7 @@ async function cmdCheck(dir) {
   }
   const auth = process.env.GOOGLE_CLOUD_TTS_API_KEY ? 'GOOGLE_CLOUD_TTS_API_KEY' : 'gcloud application-default credentials';
   try {
-    const voice = process.env.GOOGLE_CLOUD_TTS_VOICE_NAME || DEFAULT_VOICE.name;
-    const lang = process.env.GOOGLE_CLOUD_TTS_LANGUAGE_CODE || DEFAULT_VOICE.languageCode;
+    const { name: voice, languageCode: lang } = SITE_VOICE;
     const res = await fetch(`${TTS_URL}/voices?languageCode=${encodeURIComponent(lang)}`, { headers: ttsHeaders() });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
     const { voices = [] } = await res.json();

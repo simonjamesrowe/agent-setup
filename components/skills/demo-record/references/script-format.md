@@ -13,7 +13,7 @@ export default {
   // viewport: { width: 1920, height: 1080 },  // = the video resolution
   // deviceScaleFactor: 2,                     // 2 → 3840x2160 frames, sharper text, 4x the frames
   // colorScheme: 'dark',
-  // voice: { name: 'en-GB-Chirp3-HD-Charon', languageCode: 'en-GB', speakingRate: 1.05 },
+  // voice: { speakingRate: 1.05 },          // site voice by default; name + languageCode only change together
   pronounce: { 'simonrowe.dev': 'simon rowe dot dev', OIDC: 'O I D C' },
   // storageState: 'auth.json',               // signed-in sessions (any number of sites), relative to the demo dir
   // ignoreProblems: ['sentry.io'],            // substrings of third-party noise to drop from page-problem warnings

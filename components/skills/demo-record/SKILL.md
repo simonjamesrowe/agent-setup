@@ -32,8 +32,12 @@ Demos live in `~/workspace/simonjamesrowe/demos/<slug>/`: `brief.md` and
 - Google TTS credentials. The runner loads `~/workspace/simonjamesrowe/env`
   itself (override with `--env-file <path>`) and uses `GOOGLE_CLOUD_TTS_API_KEY`,
   falling back to gcloud application-default credentials with
-  `GOOGLE_CLOUD_TTS_PROJECT_ID` as the quota project. The default voice is
-  `GOOGLE_CLOUD_TTS_VOICE_NAME` (the site's narration voice, `en-GB-Chirp3-HD-Charon`).
+  `GOOGLE_CLOUD_TTS_PROJECT_ID` as the quota project.
+- **The voice is the site's**: `en-AU-Chirp3-HD-Achird` (`en-AU`), pinned in
+  the runner as `SITE_VOICE` to match the monorepo's `application.yml` default.
+  It deliberately ignores `GOOGLE_CLOUD_TTS_VOICE_NAME` so a stale local env
+  file cannot change it. If the site's voice changes, change `SITE_VOICE` in
+  the same release.
 
 ## Workflow
 
