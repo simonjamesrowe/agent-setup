@@ -66,7 +66,11 @@ function estimateSeconds(text) {
 function loadEnv(argv) {
   const flag = argv.indexOf('--env-file');
   const file = flag >= 0 ? argv[flag + 1] : process.env.DEMO_ENV_FILE || DEFAULT_ENV_FILE;
-  if (file && fs.existsSync(file)) process.loadEnvFile(file);
+  if (!file || !fs.existsSync(file)) return;
+  // process.loadEnvFile arrived in Node 20.12; engines allows any 20.x, so older
+  // runtimes skip the file and rely on variables already exported.
+  if (typeof process.loadEnvFile === 'function') process.loadEnvFile(file);
+  else console.warn(`demo: Node ${process.version} cannot load ${file}; export GOOGLE_CLOUD_TTS_* yourself or use Node 20.12+`);
 }
 
 // ---------- demo definition ----------
