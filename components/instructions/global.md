@@ -126,7 +126,7 @@ Reach for these before improvising:
 - `frontend-design` — visual direction when building or restyling UI
 - `embabel-guide` — run the Embabel docs MCP server when authoring agent code
 - `demo-plan` — grill for a product demo's aim and messages, draft the script, get approval
-- `demo-record` — turn an approved demo script into a narrated MP4 (Google TTS + Playwright + ffmpeg)
+- `demo-record` — turn an approved demo script into a narrated MP4 (Google TTS + Playwright + ffmpeg), including hand-drawn Excalidraw diagram walkthroughs
 
 ## Planning before building
 

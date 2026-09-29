@@ -36,6 +36,9 @@ The tree, roughly in dependency order:
   A message with no on-screen moment is cut or rethought.
 - **The moment**: the one interaction that makes the demo worth watching,
   and where it lands in the running order.
+- **Diagrams**: whether the story needs an architecture or flow diagram, what
+  it shows, and the sections it will be walked through in, in order. Each
+  section should line up with a key message.
 - **Out of scope**: features to leave out, even impressive ones.
 - **Constraints**: target length (default 60–120s), sign-in needed,
   side effects (emails sent, records created), flaky or slow steps
@@ -82,6 +85,10 @@ Shape it as a story:
   narration landing on that moment.
 - Put "the moment" roughly two-thirds of the way through.
 - Put sign-in and dismissing banners in `setup`; they are trimmed.
+- Draw each diagram from the brief in `diagrams/<name>.json` (house style and
+  format in the script format's Diagrams section), one group per walkthrough
+  section, with one scene per `diagram.focus` beat. Preview it with
+  `node $DEMO diagram <dir> <name>` and fix overlaps before moving on.
 - End with the brief's two-sentence `outro`, verbatim.
 
 Then rehearse the actions, which also measures how long each one takes, and
@@ -98,8 +105,9 @@ The draft is ready once `rehearse` passes every scene, the table has no `+`
 ### 5. Approval gate
 
 Show Simon the `plan.md` table (scene, on screen, narration, seconds), the
-estimated length, and a line per key message naming the scene that carries
-it. Ask him to approve or change it. Apply each tweak, re-run `rehearse`
+estimated length, a line per key message naming the scene that carries it,
+and for each diagram the whole-view preview plus one `--focus` preview per
+walkthrough section. Ask him to approve or change it. Apply each tweak, re-run `rehearse`
 when an action changed and then `plan`, and show the table again.
 
 Offer a voice check before the full build: `node $DEMO narrate <dir>` voices

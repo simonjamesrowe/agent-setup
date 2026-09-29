@@ -94,6 +94,81 @@ throughout. Get to the next site the way a viewer would expect:
 The cursor reappears at its last position on each new page. Browser back works
 too: `await page.goBack()`.
 
+## Diagrams
+
+A scene can switch to a hand-drawn Excalidraw diagram and walk through it,
+highlighting one section at a time. Diagrams live in `diagrams/<name>.json`
+beside `script.mjs`, and play in the same recorded tab as everything else.
+
+```js
+{ id: 'arch', show: 'Architecture diagram, whole view', say: '…',
+  do: async ({ diagram }) => { await diagram.show('architecture'); } },
+{ id: 'ingest', show: 'Focus: the ingestion path', say: '…',
+  do: async ({ diagram }) => { await diagram.focus('ingestion'); } },
+{ id: 'back', show: 'Back to the product', order: 'do-then-say', say: '…',
+  do: async ({ page, diagram }) => { await diagram.reset(); await page.goto('https://…'); } },
+```
+
+| Helper | Does |
+| --- | --- |
+| `diagram.show(name)` | Renders `diagrams/<name>.json` full-screen, fitted to the viewport |
+| `diagram.focus(targets, opts)` | Veils everything else, re-draws the targets crisp on top, sketches an amber outline around each, and glides the camera onto them |
+| `diagram.reset()` | Clears the focus and returns to the whole view |
+
+`targets` is one or an array of element ids, `groupIds` or frame names. Arrows
+that join two focused elements light up with them. Pass `opts` to adjust:
+`{ zoom: false }` keeps the camera still, `{ arrows: false }` leaves arrows
+dimmed, `{ outline: false }` skips the sketch, and `dim` (0 to 1, default
+0.78) and `maxZoom` (default 1.8) tune the effect. A demo can open on a
+diagram with `url: 'diagram:<name>'`, and then needs an explicit `link` for
+the end card.
+
+**File format.** Either an array of Excalidraw element skeletons, which is the
+format to author, or a real `.excalidraw` export (`{ "elements": […] }`) drawn by
+hand at excalidraw.com, rendered exactly as drawn. Skeletons get the house style
+automatically: Excalifont, rough strokes, rounded rectangles, and
+**cross-hatch** fill on any shape with a `backgroundColor`.
+
+```json
+[
+  { "type": "text", "id": "title", "x": 300, "y": -80, "text": "The software factory", "fontSize": 36 },
+  { "type": "rectangle", "id": "github", "x": 0, "y": 0, "width": 200, "height": 90,
+    "backgroundColor": "#a5d8ff", "groupIds": ["triggers"], "label": { "text": "GitHub\npull requests", "fontSize": 20 } },
+  { "type": "rectangle", "id": "temporal", "x": 340, "y": 0, "width": 220, "height": 90,
+    "backgroundColor": "#fff3bf", "label": { "text": "Temporal", "fontSize": 22 } },
+  { "type": "arrow", "id": "a1", "x": 200, "y": 45, "points": [[0, 0], [140, 0]],
+    "start": { "id": "github" }, "end": { "id": "temporal" }, "label": { "text": "webhook", "fontSize": 18 } }
+]
+```
+
+Style rules that keep a diagram readable at 1080p:
+
+- **Pastel fills only**: `#a5d8ff` blue (inputs, sources), `#b2f2bb` green
+  (services, outputs), `#d0bfff` purple (processing), `#ffd8a8` orange
+  (external), `#fff3bf` yellow (orchestration, decisions), `#c3fae8` teal
+  (storage), `#ffc9c9` red (alerts, risk), `#eebefa` pink (analytics).
+- **Sections are groups.** Give every element in a section the same
+  `groupIds` entry and focus it by that name. Excalidraw frames also work as
+  targets, but they render as plain grey boxes, not hand-drawn ones.
+- Meaningful ids (`github`, `temporal`), since the script focuses by them.
+- Boxes at least 160×80, labels at least 18px and the title at least 32px;
+  keep 60px or more between boxes so arrows and their labels have room.
+- Bind every arrow with `start`/`end` so it follows its boxes and lights up
+  with them on focus.
+- No emoji; Excalifont does not carry them.
+
+Preview while authoring. Each command writes a 1920×1080 PNG to `.build/`:
+
+```bash
+node $DEMO diagram <demo-dir> <name>                     # whole view
+node $DEMO diagram <demo-dir> <name> --focus triggers    # one walkthrough beat
+```
+
+Diagram rendering needs Excalidraw, React and esbuild in the demos workspace.
+`init` installs them; the renderer is bundled once per demo into `.build/` and
+served, with Excalidraw's own fonts, from a local server that exists only for
+the length of the take.
+
 ## Outro
 
 `outro` must be **exactly two sentences**: what was demoed, then why it matters.

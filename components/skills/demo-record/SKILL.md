@@ -1,6 +1,6 @@
 ---
 name: demo-record
-description: Build a narrated product demo video from an approved demo script — Google Cloud TTS voice-over, a full-viewport Playwright recording, and an ffmpeg mix into a finished MP4 with captions and poster. Use when a demo script is approved and needs recording, a demo needs re-recording after tweaks, or a narrated walkthrough video of a web app is wanted.
+description: Build a narrated product demo video from an approved demo script — Google Cloud TTS voice-over, a full-viewport Playwright recording across any sites and hand-drawn Excalidraw diagram walkthroughs, and an ffmpeg mix into a finished MP4 with captions and poster. Use when a demo script is approved and needs recording, a demo needs re-recording after tweaks, or a narrated walkthrough video of a web app is wanted.
 ---
 
 # Record A Narrated Demo
@@ -72,7 +72,8 @@ The build is done only when all of these hold:
   toast that ends up in a published demo is the worst outcome. Fix the
   environment (`prod-triage`, or record against `local-env`), then rebuild.
 - **Every still in `.build/stills/` looked at**: one frame per scene plus the
-  end card. Check for spinners, empty states, cookie banners, a cursor parked
+  end card. On a diagram scene, the still must show the section the narration
+  names highlighted. Check for spinners, empty states, cookie banners, a cursor parked
   over the content, and a two-sentence end card that reads correctly.
 - Spot-check sync: `.build/timeline.json` has each scene's `audioStart`. The
   narration should begin within about 0.5s of it. Measure with
@@ -102,8 +103,8 @@ clip's path and duration; play one with `afplay <clip>.wav`.
 
 ## Script format
 
-The full `script.mjs` contract (scene fields, the action helpers, signed-in
-demos, the outro rule) is in
+The full `script.mjs` contract (scene fields, the action helpers, crossing
+sites, hand-drawn diagram walkthroughs, signed-in demos, the outro rule) is in
 [`references/script-format.md`](references/script-format.md). Read it before
 editing any scene.
 

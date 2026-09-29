@@ -8,6 +8,7 @@
 //   node demo.mjs narrate  <demo-dir>
 //   node demo.mjs rehearse <demo-dir> [--headless]
 //   node demo.mjs build    <demo-dir> [--headed] [--keep-frames]
+//   node demo.mjs diagram  <demo-dir> <name> [--focus a,b]
 //
 // Narration is synthesised first so every scene knows how long its voice-over
 // runs; the recorder then holds each scene for max(action, narration), and the
@@ -22,6 +23,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { DIAGRAM_DEPS, diagramDepsInstalled, diagramHelpers, startDiagramServer } from './diagram.mjs';
 
 const TTS_URL = 'https://texttospeech.googleapis.com/v1';
 const DEFAULT_ENV_FILE = path.join(os.homedir(), 'workspace', 'simonjamesrowe', 'env');
@@ -209,7 +211,7 @@ const PAGE_SCRIPT = `(() => {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install); else install();
 })();`;
 
-function helpers(page, context, viewport) {
+function helpers(page, context, viewport, getServer) {
   const wait = (seconds) => sleep(seconds * 1000);
   const resolve = (target) => (typeof target === 'string' ? page.locator(target) : target);
   // Last cursor position, re-applied after every load: a new origin has no
@@ -264,12 +266,13 @@ function helpers(page, context, viewport) {
     await wait(seconds);
     return loc;
   }
-  return { page, context, wait, cursor: { move, click, type, hover: move }, scroll, scrollTo, highlight, park };
+  const diagram = diagramHelpers(page, getServer, wait);
+  return { page, context, wait, cursor: { move, click, type, hover: move }, scroll, scrollTo, highlight, diagram, park };
 }
 
 async function showEndCard(page, demo) {
   const { cfg } = demo;
-  const link = cfg.link ?? new URL(cfg.url).host;
+  const link = cfg.link ?? (cfg.url.startsWith('diagram:') ? '' : new URL(cfg.url).host);
   await page.evaluate(({ title, lines, link }) => {
     const cursor = document.getElementById('__demo_cursor');
     if (cursor) cursor.style.display = 'none';
@@ -325,7 +328,10 @@ async function record(demo, clips, { headed = false, capture = true } = {}) {
   await context.addInitScript(PAGE_SCRIPT);
   const page = await context.newPage();
   page.setDefaultTimeout(cfg.actionTimeoutMs || 20000);
-  const h = helpers(page, context, viewport);
+  // The diagram server starts on the first diagram.show() and closes with the browser.
+  let diagramServer;
+  const getServer = () => (diagramServer ??= startDiagramServer(demo.demoDir, demo.buildDir));
+  const h = helpers(page, context, viewport, getServer);
   page.on('load', () => { h.park(); });
   // Backstop for popups PAGE_SCRIPT cannot rewrite (iframes, noopener
   // handlers): close the popup and load its URL in the recorded tab.
@@ -361,7 +367,9 @@ async function record(demo, clips, { headed = false, capture = true } = {}) {
   page.on('pageerror', (e) => report(`page error: ${e.message.split('\n')[0]}`));
 
   try {
-    await page.goto(cfg.url, { waitUntil: 'load' });
+    // `diagram:<name>` opens on a diagram instead of a website.
+    if (cfg.url.startsWith('diagram:')) await h.diagram.show(cfg.url.slice('diagram:'.length));
+    else await page.goto(cfg.url, { waitUntil: 'load' });
     if (cfg.setup) await cfg.setup(h);
     await h.park();
 
@@ -436,6 +444,7 @@ async function record(demo, clips, { headed = false, capture = true } = {}) {
     if (cdp) await cdp.detach().catch(() => {});
     await context.close().catch(() => {});
     await browser.close().catch(() => {});
+    if (diagramServer) await (await diagramServer.catch(() => null))?.close();
   }
 }
 
@@ -563,7 +572,7 @@ async function cmdInit(dir) {
     console.log(`setting up Playwright in ${root}`);
     const npm = (args) => { const r = spawnSync('npm', args, { cwd: root, stdio: 'inherit' }); if (r.status !== 0) die(`npm ${args.join(' ')} failed`); };
     if (!fs.existsSync(path.join(root, 'package.json'))) npm(['init', '-y']);
-    npm(['install', '--save-dev', 'playwright']);
+    npm(['install', '--save-dev', 'playwright', ...DIAGRAM_DEPS]);
     const r = spawnSync('npx', ['playwright', 'install', 'chromium'], { cwd: root, stdio: 'inherit' });
     if (r.status !== 0) die('playwright install chromium failed');
   }
@@ -583,6 +592,10 @@ async function cmdCheck(dir) {
     line(Boolean(pw), 'playwright resolvable from demo dir', pw ? '' : 'run init, or npm i -D playwright in the demos workspace');
     if (pw) {
       try { const b = await pw.chromium.launch(); await b.close(); line(true, 'chromium launches'); } catch (e) { line(false, 'chromium launches', `npx playwright install chromium (${e.message.split('\n')[0]})`); }
+    }
+    if (fs.existsSync(path.join(path.resolve(dir), 'diagrams'))) {
+      const ok = diagramDepsInstalled(path.resolve(dir));
+      line(ok, 'diagram support (Excalidraw + esbuild)', ok ? '' : `npm i -D ${DIAGRAM_DEPS.join(' ')} in the demos workspace`);
     }
   }
   const auth = process.env.GOOGLE_CLOUD_TTS_API_KEY ? 'GOOGLE_CLOUD_TTS_API_KEY' : 'gcloud application-default credentials';
@@ -699,6 +712,33 @@ async function cmdBuild(dir, argv) {
   console.log(`  captions ${path.join(demo.outDir, `${demo.slug}.vtt`)}\n  poster   ${path.join(demo.outDir, 'poster.jpg')}\n  stills   ${path.dirname(shots[0])}/ (one per scene — look at them)`);
 }
 
+// Renders one diagram (optionally focused) to a PNG, for authoring and for the approval gate.
+async function cmdDiagram(dir, name, argv) {
+  if (!name) die('usage: diagram <demo-dir> <name> [--focus a,b]');
+  const demoDir = path.resolve(dir);
+  const flag = argv.indexOf('--focus');
+  const focus = flag >= 0 ? argv[flag + 1].split(',') : null;
+  const { chromium } = loadPlaywright(demoDir);
+  const buildDir = path.join(demoDir, '.build');
+  const server = await startDiagramServer(demoDir, buildDir);
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    const d = diagramHelpers(page, async () => server, (s) => sleep(s * 1000));
+    await d.show(name);
+    if (focus) await d.focus(focus);
+    const out = path.join(buildDir, `diagram-${name}${focus ? `-${focus.join('+')}` : ''}.png`);
+    await page.screenshot({ path: out });
+    for (const e of errors) console.warn(`  ⚠ page error: ${e}`);
+    console.log(out);
+  } finally {
+    await browser.close();
+    await server.close();
+  }
+}
+
 const [cmd, dir, ...rest] = process.argv.slice(2);
 loadEnv(process.argv);
 const commands = {
@@ -708,6 +748,7 @@ const commands = {
   narrate: () => cmdNarrate(dir || '.'),
   rehearse: () => cmdRehearse(dir || '.', rest),
   build: () => cmdBuild(dir || '.', rest),
+  diagram: () => cmdDiagram(dir || '.', rest[0], rest.slice(1)),
 };
-if (!commands[cmd]) die('usage: demo.mjs <check|init|plan|narrate|rehearse|build> <demo-dir> [flags]');
+if (!commands[cmd]) die('usage: demo.mjs <check|init|plan|narrate|rehearse|build|diagram> <demo-dir> [flags]');
 commands[cmd]().catch((err) => die(process.env.DEMO_DEBUG ? err.stack : err.message));
