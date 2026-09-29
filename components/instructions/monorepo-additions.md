@@ -10,3 +10,4 @@
 - Use Raspberry Pi Connect's browser remote shell for host checks (`prod-triage` has the shared access procedure); manual copy-paste is the fallback.
 - Check nginx/upstream health and the deployed DNS configuration before a restart; current nginx uses runtime upstream resolution, while older static configurations had an all-upstreams boot dependency.
 - When adding form fields to an API that reconstructs a full resource from the request payload (whole-document update), write a test that saves with the field unchanged and asserts it survives the round trip — omitted request fields silently dropping saved data is the failure mode to catch.
+- In automated deploy/recovery logic (e.g. the deployer), prioritize preventing the primary failure mode (like a full-disk outage) over preserving non-critical evidence (like rollback images). If the evidence can be recovered independently (re-pulling container images), don't let its preservation delay remediation of the outage.
