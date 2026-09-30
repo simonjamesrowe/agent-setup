@@ -93,6 +93,10 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   field.** The default identity/array behavior leaks raw bytes into logs and
   breaks equality; add a regression test asserting the sensitive data appears
   in neither the string output nor equality checks.
+- **When a guard flag protects against an incomplete/partial data state, audit
+  every code path that can leave data incomplete**, not just the interruption
+  cases found first — including a resource limit being hit while work is still
+  queued. Test that boundary directly.
 
 ## Git conventions (this org)
 
