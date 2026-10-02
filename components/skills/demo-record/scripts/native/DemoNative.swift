@@ -294,6 +294,9 @@ final class Driver {
         _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
       }
       return ["screenRecording": CGPreflightScreenCaptureAccess(), "accessibility": AXIsProcessTrusted()]
+    case "running":
+      let name = args["app"] as? String ?? ""
+      return NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == name || $0.localizedName == name }
     case "attach": return try attach(args)
     case "capture": return try startCapture(args)
     case "stop": return stopCapture()

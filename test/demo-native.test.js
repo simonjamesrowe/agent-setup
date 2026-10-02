@@ -110,8 +110,11 @@ test("url 'native' without a native block is refused", () => {
   assert.match(res.stderr, /url 'native' needs a native: \{ app \} block/);
 });
 
-test('a native window with the wrong aspect ratio is refused', () => {
-  const res = runner('plan', demoDir(NATIVE.replace("{ app: 'Example' }", "{ app: 'Example', window: { width: 1200, height: 900 } }")));
+test('a wrong native aspect ratio is reported with the other script problems', () => {
+  const script = NATIVE.replace("{ app: 'Example' }", "{ app: 'Example', window: { width: 1200, height: 900 } }")
+    .replace("'That was it. It matters.'", "'Only one sentence.'");
+  const res = runner('plan', demoDir(script));
   assert.strictEqual(res.status, 1);
   assert.match(res.stderr, /native\.window 1200x900 does not have the viewport's 1920x1080 aspect ratio/);
+  assert.match(res.stderr, /outro must be exactly two sentences/);
 });

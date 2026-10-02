@@ -111,17 +111,15 @@ async function loadDemo(dir) {
     if (s.do && typeof s.do !== 'function') errors.push(`${where} (${s.id}): 'do' must be an async function`);
     if (s.order && !['together', 'say-then-do', 'do-then-say'].includes(s.order)) errors.push(`${where} (${s.id}): unknown order '${s.order}'`);
   }
+  const viewport = { width: 1920, height: 1080, ...(cfg.viewport || {}) };
+  const nativeWindow = cfg.native?.app ? { width: 1440, height: 810, ...(cfg.native.window || {}) } : null;
+  if (nativeWindow && Math.abs(nativeWindow.width / nativeWindow.height - viewport.width / viewport.height) > 0.01) {
+    errors.push(`native.window ${nativeWindow.width}x${nativeWindow.height} does not have the viewport's ${viewport.width}x${viewport.height} aspect ratio, so the app would be stretched`);
+  }
   const outro = sentences(cfg.outro || '');
   if (outro.length !== 2) errors.push(`outro must be exactly two sentences (found ${outro.length}) — it closes every demo`);
   if (errors.length) die(`invalid script.mjs:\n  - ${errors.join('\n  - ')}`);
-  const viewport = { width: 1920, height: 1080, ...(cfg.viewport || {}) };
-  if (cfg.native) {
-    const w = { width: 1440, height: 810, ...(cfg.native.window || {}) };
-    if (Math.abs(w.width / w.height - viewport.width / viewport.height) > 0.01) {
-      die(`native.window ${w.width}x${w.height} does not have the viewport's ${viewport.width}x${viewport.height} aspect ratio, so the app would be stretched`);
-    }
-    cfg.native = { ...cfg.native, window: w };
-  }
+  if (nativeWindow) cfg.native = { ...cfg.native, window: nativeWindow };
   const voice = { ...SITE_VOICE, ...(cfg.voice || {}) };
   const slug = cfg.slug || path.basename(demoDir);
   return { cfg, demoDir, slug, viewport, voice, buildDir: path.join(demoDir, '.build'), outDir: path.join(demoDir, 'out') };
@@ -691,7 +689,7 @@ async function checkNative(native, demoDir, line, prompt) {
     line(perms.screenRecording, 'Screen Recording permission', perms.screenRecording ? '' : `Screen & System Audio Recording — ${hint}`);
     line(perms.accessibility, 'Accessibility permission', perms.accessibility ? '' : `Accessibility — ${hint}`);
     const appPath = native.path && path.resolve(demoDir, native.path);
-    const running = spawnSync('osascript', ['-e', `application "${String(native.app).replace(/"/g, '')}" is running`], { encoding: 'utf8' }).stdout.trim() === 'true';
+    const running = await helper.request('running', { app: native.app });
     const installed = appPath ? fs.existsSync(appPath) : running;
     line(installed, `app ${native.app}`, installed ? (running ? 'running' : 'will be launched') : appPath ? `${appPath} not found` : 'not running, and no native.path to launch it from');
   } catch (e) {
