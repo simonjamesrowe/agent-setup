@@ -467,15 +467,39 @@ final class Driver {
 
   // ----- input -----
 
+  // The focused app. Accessibility answers live but intermittently fails to
+  // answer at all; NSWorkspace always answers but is refreshed on the main run
+  // loop, so it can lag an activation. Prefer the first, fall back to the second.
+  func frontPid() -> pid_t? {
+    if let focused = attr(AXUIElementCreateSystemWide(), kAXFocusedApplicationAttribute) {
+      var pid: pid_t = 0
+      if AXUIElementGetPid(focused as! AXUIElement, &pid) == .success { return pid }
+    }
+    return NSWorkspace.shared.frontmostApplication?.processIdentifier
+  }
+
   func ensureFront() throws {
     guard let app else { throw fail("attach first") }
-    if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier { return }
+    if frontPid() == app.processIdentifier { return }
     app.activate()
     for _ in 0..<20 {
       usleep(100_000)
-      if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier { return }
+      if frontPid() == app.processIdentifier { return }
     }
     throw fail("\(app.localizedName ?? "the app") is not frontmost; refusing to send input to another app")
+  }
+
+  // Checked before every individual event, not once per action: a long type
+  // or glide gives someone time to click into another app part-way through.
+  func stillFront() throws {
+    guard let app else { throw fail("attach first") }
+    // A focus change has to last 300ms to count, so a momentary blip in
+    // either source does not end a take; a real switch away still does.
+    for _ in 0..<6 {
+      if frontPid() == app.processIdentifier { return }
+      usleep(50_000)
+    }
+    throw fail("\(app.localizedName ?? "the app") stopped being frontmost mid-action; stopping so no input goes astray")
   }
 
   func guardPointer() throws {
@@ -491,6 +515,8 @@ final class Driver {
     let start = lastPointer ?? CGEvent(source: nil)?.location ?? p
     let steps = max(1, Int(duration * 60))
     for i in 1...steps {
+      try stillFront()
+      try guardPointer()
       let t = Double(i) / Double(steps)
       let e = t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
       let q = CGPoint(x: start.x + (p.x - start.x) * e, y: start.y + (p.y - start.y) * e)
@@ -505,6 +531,7 @@ final class Driver {
     try guardPointer()
     DispatchQueue.main.async { self.overlay.view.ripples.append((p, Date())) }
     for n in 1...max(1, count) {
+      try stillFront()
       for type in [CGEventType.leftMouseDown, .leftMouseUp] {
         let e = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: p, mouseButton: .left)
         e?.setIntegerValueField(.mouseEventClickState, value: Int64(n))
@@ -518,6 +545,7 @@ final class Driver {
   func type(_ text: String, delay: Double) throws {
     try ensureFront()
     for ch in text {
+      try stillFront()
       if ch == "\n" { try key("Enter"); usleep(useconds_t(delay * 1_000_000)); continue }
       let units = Array(String(ch).utf16)
       for down in [true, false] {
@@ -579,6 +607,8 @@ final class Driver {
     try guardPointer()
     let steps = max(1, Int(abs(pixels) / 40))
     for _ in 0..<steps {
+      try stillFront()
+      try guardPointer()
       let e = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: Int32(pixels > 0 ? -40 : 40), wheel2: 0, wheel3: 0)
       e?.post(tap: .cghidEventTap)
       usleep(16_000)
