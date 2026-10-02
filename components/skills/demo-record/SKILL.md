@@ -1,6 +1,6 @@
 ---
 name: demo-record
-description: Build a narrated product demo video from an approved demo script — Google Cloud TTS voice-over, a full-viewport Playwright recording across any sites and hand-drawn Excalidraw diagram walkthroughs, and an ffmpeg mix into a finished MP4 with captions and poster. Use when a demo script is approved and needs recording, a demo needs re-recording after tweaks, or a narrated walkthrough video of a web app is wanted.
+description: Build a narrated product demo video from an approved demo script — Google Cloud TTS voice-over, a full-viewport Playwright recording across any sites, a native macOS app filmed with ScreenCaptureKit, hand-drawn Excalidraw diagram walkthroughs, and an ffmpeg mix into a finished MP4 with captions and poster. Use when a demo script is approved and needs recording, a demo needs re-recording after tweaks, or a narrated walkthrough video of a web or desktop app is wanted.
 ---
 
 # Record A Narrated Demo
@@ -130,6 +130,10 @@ editing any scene.
   until both finish. Either narrate the wait or shorten it.
 - **Setup is trimmed.** Anything in `setup` (sign-in, dismissing banners,
   seeding state) runs before the clock starts and never appears in the video.
+- **Desktop apps are filmed live.** A script with a `native` block drives the
+  real app with the real pointer, so nobody may touch the Mac while it runs.
+  It needs Screen Recording and Accessibility for the host app; `check --prompt`
+  says which are missing. See "Native macOS apps" in the script format.
 - **Prod is a live audience.** A demo that submits forms or sends messages
   against `https://simonrowe.dev` has real effects (the contact form emails
   Simon). Record side-effecting flows against `local-env`.
