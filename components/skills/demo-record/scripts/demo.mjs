@@ -92,8 +92,8 @@ async function loadDemo(dir) {
   if (!cfg.title) errors.push('title is required');
   if (!cfg.url) errors.push('url is required');
   if (cfg.native !== undefined) {
+    // No platform check here: plan works anywhere, and the helper refuses to start off macOS.
     if (!cfg.native || typeof cfg.native !== 'object' || !cfg.native.app) errors.push("native needs an app: { app: '<name or bundle id>' }");
-    else if (process.platform !== 'darwin') errors.push('native demos record a macOS app and need macOS');
   }
   if (cfg.url === 'native' && !cfg.native) errors.push("url 'native' needs a native: { app } block");
   if ((cfg.url === 'native' || String(cfg.url || '').startsWith('diagram:')) && cfg.link === undefined) {
