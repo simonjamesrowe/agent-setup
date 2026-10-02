@@ -79,8 +79,8 @@ struct Query {
     domId = json["id"] as? String
     domClass = json["className"] as? String
     index = json["index"] as? Int ?? 0
-    if roles.isEmpty && name == nil && pattern == nil && domId == nil && domClass == nil {
-      throw fail("a target needs at least one of role, name, id or className")
+    if roles.isEmpty && subrole == nil && name == nil && pattern == nil && domId == nil && domClass == nil {
+      throw fail("a target needs at least one of role, subrole, name, id or className")
     }
   }
 
