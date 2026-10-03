@@ -118,3 +118,26 @@ test('a wrong native aspect ratio is reported with the other script problems', (
   assert.match(res.stderr, /native\.window 1200x900 does not have the viewport's 1920x1080 aspect ratio/);
   assert.match(res.stderr, /outro must be exactly two sentences/);
 });
+
+test('sounds are validated with the other script problems', () => {
+  const res = runner('plan', demoDir(NATIVE.replace("native: { app: 'Example' },", "native: { app: 'Example' }, sounds: { 'Bad Name': { say: 'x' }, empty: {} },")));
+  assert.strictEqual(res.status, 1);
+  assert.match(res.stderr, /sounds\.Bad Name: name must be lower-kebab-case/);
+  assert.match(res.stderr, /sounds\.empty: 'say' \(the words to voice\) is required/);
+});
+
+test('a script with sounds still plans', () => {
+  const res = runner('plan', demoDir(NATIVE.replace("native: { app: 'Example' },", "native: { app: 'Example' }, sounds: { note: { say: 'Hello there.' } },")));
+  assert.strictEqual(res.status, 0, res.stderr);
+});
+
+test('smooth keeps the stroke ends and adds points between them', async () => {
+  const { smooth } = await load('native.mjs');
+  const points = [[0, 0], [0.5, 1], [1, 0]];
+  const out = smooth(points, 4);
+  assert.deepStrictEqual(out[0], [0, 0]);
+  assert.deepStrictEqual(out[out.length - 1], [1, 0]);
+  assert.strictEqual(out.length, 9);
+  assert.ok(out.every(([x, y]) => x >= 0 && x <= 1 && y >= -0.2 && y <= 1.2));
+  assert.deepStrictEqual(smooth([[0, 0], [1, 1]]), [[0, 0], [1, 1]]);
+});

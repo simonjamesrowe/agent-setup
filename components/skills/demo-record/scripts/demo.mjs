@@ -17,7 +17,7 @@
 // demos workspace needs `npm i -D playwright` once — see `init`.
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -116,6 +116,10 @@ async function loadDemo(dir) {
   if (nativeWindow && Math.abs(nativeWindow.width / nativeWindow.height - viewport.width / viewport.height) > 0.01) {
     errors.push(`native.window ${nativeWindow.width}x${nativeWindow.height} does not have the viewport's ${viewport.width}x${viewport.height} aspect ratio, so the app would be stretched`);
   }
+  for (const [name, sound] of Object.entries(cfg.sounds || {})) {
+    if (!/^[a-z0-9-]+$/.test(name)) errors.push(`sounds.${name}: name must be lower-kebab-case`);
+    if (!sound || typeof sound.say !== 'string' || !sound.say.trim()) errors.push(`sounds.${name}: 'say' (the words to voice) is required`);
+  }
   const outro = sentences(cfg.outro || '');
   if (outro.length !== 2) errors.push(`outro must be exactly two sentences (found ${outro.length}) — it closes every demo`);
   if (errors.length) die(`invalid script.mjs:\n  - ${errors.join('\n  - ')}`);
@@ -132,15 +136,22 @@ function spoken(text, pronounce = {}) {
   return keys.reduce((t, k) => t.split(k).join(pronounce[k]), text);
 }
 
+// Sounds are voiced alongside the narration but played aloud during a scene
+// (see play()), so their ids carry a prefix no scene id can have.
+const SOUND_PREFIX = 'sound:';
+
 function narrationItems(demo) {
-  const items = demo.cfg.scenes.filter((s) => s.say).map((s) => ({ id: s.id, text: s.say }));
-  items.push({ id: OUTRO_ID, text: demo.cfg.outro.trim() });
+  const items = demo.cfg.scenes.filter((s) => s.say).map((s) => ({ id: s.id, text: s.say, voice: demo.voice }));
+  items.push({ id: OUTRO_ID, text: demo.cfg.outro.trim(), voice: demo.voice });
+  for (const [name, sound] of Object.entries(demo.cfg.sounds || {})) {
+    items.push({ id: `${SOUND_PREFIX}${name}`, text: sound.say.trim(), voice: { ...demo.voice, ...(sound.voice || {}) } });
+  }
   return items.map((i) => ({ ...i, speech: spoken(i.text, demo.cfg.pronounce) }));
 }
 
 function clipFile(demo, item) {
   // Cache on everything that changes the audio, so tweaking one scene re-voices only that scene.
-  const hash = createHash('sha256').update(JSON.stringify({ text: item.speech, voice: demo.voice })).digest('hex').slice(0, 16);
+  const hash = createHash('sha256').update(JSON.stringify({ text: item.speech, voice: item.voice })).digest('hex').slice(0, 16);
   return path.join(demo.buildDir, 'tts', `${hash}.wav`);
 }
 
@@ -184,7 +195,7 @@ async function narrate(demo) {
     if (!fs.existsSync(file)) {
       headers ??= ttsHeaders();
       process.stdout.write(`  voicing ${item.id}… `);
-      await synthesize(item.speech, demo.voice, file, headers);
+      await synthesize(item.speech, item.voice, file, headers);
       console.log('done');
     }
     clips.set(item.id, { file, duration: probeDuration(file), text: item.text });
@@ -370,6 +381,22 @@ async function record(demo, clips, { headed = false, capture = true } = {}) {
     }
   }
   const appFramesDir = path.join(demo.buildDir, 'frames', 'app');
+  // Sounds played aloud during scenes, mixed in afterwards where they started.
+  const sounds = [];
+  let clockStart = null;
+  h.play = async (name) => {
+    const clip = clips.get(`${SOUND_PREFIX}${name}`);
+    if (!clip) throw new Error(`no voiced sound '${name}' (declare it in sounds, then run narrate or build)`);
+    const at = clockStart === null ? null : Date.now() / 1000 - clockStart;
+    // Asynchronous, so the screencast and the scene's narration keep running while it plays.
+    const status = await new Promise((resolve, reject) => {
+      const player = spawn('afplay', [clip.file], { stdio: 'ignore' });
+      player.on('error', reject);
+      player.on('exit', resolve);
+    });
+    if (status !== 0) throw new Error(`afplay failed for sound '${name}' (exit ${status})`);
+    if (at !== null) sounds.push({ name, file: clip.file, at, duration: clip.duration, text: clip.text });
+  };
   let appIndex;
   // Backstop for popups PAGE_SCRIPT cannot rewrite (iframes, noopener
   // handlers): close the popup and load its URL in the recorded tab.
@@ -438,6 +465,7 @@ async function record(demo, clips, { headed = false, capture = true } = {}) {
 
     // Everything before t0 (load, login, setup) is trimmed from the video.
     const t0 = now();
+    clockStart = t0;
     const narrationFor = (s) => clips.get(s.id)?.duration ?? estimateSeconds(s.say);
     for (const scene of cfg.scenes) {
       current = scene.id;
@@ -488,7 +516,7 @@ async function record(demo, clips, { headed = false, capture = true } = {}) {
     }
     for (const p of problems.slice(0, 10)) console.warn(`  ⚠ [${p.scene}] ${p.issue}`);
     if (problems.length > 10) console.warn(`  ⚠ …and ${problems.length - 10} more in .build/timeline.json`);
-    return { t0, end, timeline, frames, problems };
+    return { t0, end, timeline, frames, problems, sounds };
   } catch (err) {
     fs.mkdirSync(demo.buildDir, { recursive: true });
     let shot = path.join(demo.buildDir, `failure-${current}.png`);
@@ -536,11 +564,13 @@ function writeFrameList(rec, buildDir) {
 
 function mix(demo, rec, clips, outFile) {
   const list = writeFrameList(rec, demo.buildDir);
-  const voiced = rec.timeline.filter((t) => clips.has(t.id));
+  const voiced = rec.timeline.filter((t) => clips.has(t.id))
+    .map((t) => ({ file: clips.get(t.id).file, start: t.audioStart }))
+    .concat((rec.sounds || []).map((s) => ({ file: s.file, start: s.at })));
   const args = ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', list];
-  for (const t of voiced) args.push('-i', clips.get(t.id).file);
+  for (const t of voiced) args.push('-i', t.file);
   const parts = [`[0:v]fps=${FPS},scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p[v]`];
-  voiced.forEach((t, i) => parts.push(`[${i + 1}:a]aresample=48000,adelay=${Math.round(t.audioStart * 1000)}:all=1[a${i}]`));
+  voiced.forEach((t, i) => parts.push(`[${i + 1}:a]aresample=48000,adelay=${Math.round(t.start * 1000)}:all=1[a${i}]`));
   parts.push(`${voiced.map((_, i) => `[a${i}]`).join('')}amix=inputs=${voiced.length}:normalize=0:dropout_transition=0,apad,atrim=0:${rec.end.toFixed(3)},loudnorm=I=-16:TP=-1.5:LRA=11[a]`);
   args.push('-filter_complex', parts.join(';'), '-map', '[v]', '-map', '[a]',
     '-c:v', 'libx264', '-preset', 'slow', '-crf', '18', '-tune', 'stillimage',
@@ -557,9 +587,12 @@ function vttTime(s) {
   return `${hh}:${mm}:${ss}.${String(ms % 1000).padStart(3, '0')}`;
 }
 
-function captions(timeline) {
+function captions(timeline, sounds = []) {
   const cues = [];
-  for (const t of timeline.filter((x) => x.text)) {
+  const spoken = timeline.filter((x) => x.text)
+    .concat(sounds.map((s) => ({ text: s.text, audioStart: s.at, audioDuration: s.duration })))
+    .sort((a, b) => a.audioStart - b.audioStart);
+  for (const t of spoken) {
     const parts = sentences(t.text);
     const total = parts.reduce((n, p) => n + p.length, 0);
     let at = t.audioStart;
@@ -729,7 +762,7 @@ function cachedClips(demo) {
   const cached = new Map();
   for (const item of narrationItems(demo)) {
     const file = clipFile(demo, item);
-    if (fs.existsSync(file) && has('ffprobe')) cached.set(item.id, { file, duration: probeDuration(file) });
+    if (fs.existsSync(file) && has('ffprobe')) cached.set(item.id, { file, duration: probeDuration(file), text: item.text });
   }
   return cached;
 }
@@ -791,12 +824,12 @@ async function cmdBuild(dir, argv) {
   console.log(`3/4 mixing ${rec.frames.length} frames + ${clips.size} clips`);
   mix(demo, rec, clips, outFile);
   console.log('4/4 captions, poster, stills');
-  fs.writeFileSync(path.join(demo.outDir, `${demo.slug}.vtt`), captions(rec.timeline));
+  fs.writeFileSync(path.join(demo.outDir, `${demo.slug}.vtt`), captions(rec.timeline, rec.sounds));
   fs.writeFileSync(path.join(demo.outDir, 'summary.txt'), `${demo.cfg.title}\n\n${demo.cfg.outro.trim()}\n`);
   const shots = stills(outFile, rec.timeline, path.join(demo.buildDir, 'stills'));
   const posterScene = demo.cfg.poster || demo.cfg.scenes[0].id;
   fs.copyFileSync(path.join(demo.buildDir, 'stills', `${posterScene}.jpg`), path.join(demo.outDir, 'poster.jpg'));
-  fs.writeFileSync(path.join(demo.buildDir, 'timeline.json'), JSON.stringify({ end: rec.end, frames: rec.frames.length, timeline: rec.timeline, problems: rec.problems }, null, 2));
+  fs.writeFileSync(path.join(demo.buildDir, 'timeline.json'), JSON.stringify({ end: rec.end, frames: rec.frames.length, timeline: rec.timeline, sounds: rec.sounds, problems: rec.problems }, null, 2));
   if (!argv.includes('--keep-frames')) fs.rmSync(path.join(demo.buildDir, 'frames'), { recursive: true, force: true });
   const info = verify(outFile);
   console.log(`\n${outFile}\n  ${info.duration.toFixed(1)}s · ${info.video} · ${info.audio} · ${info.sizeMb.toFixed(1)} MB`);

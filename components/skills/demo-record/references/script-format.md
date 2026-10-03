@@ -213,6 +213,7 @@ Scenes receive `app` alongside the browser helpers:
 | `app.keyboard.type(text)` / `.press('Cmd+Shift+G')` | Types into, or sends a key combination to, whatever has focus |
 | `app.paste(text)` | Pastes through the clipboard, then restores what was on it |
 | `app.scroll(pixels)` / `app.scrollTo(target)` | Wheel scroll under the pointer / scroll an element into view |
+| `app.draw(target, strokes, { duration })` | Pen strokes inside an element (a signature pad, a canvas); each stroke is `[x, y]` points from 0 to 1 across the element, smoothed into a curve |
 | `app.selectText(target, phrase)` | Drags across a phrase inside the element's text, for apps that act on a mouse selection |
 | `app.highlight(target, seconds, { text })` | Amber outline drawn in an overlay above the app; with `text`, around just that phrase, scrolled into view |
 | `app.waitFor(target, { timeout, gone })` | Waits for an element to appear (or disappear) |
@@ -251,6 +252,37 @@ Things that differ from browser scenes:
   is captured from 2880x1620 Retina pixels down to the 1920x1080 video.
 - The helper (`scripts/native/DemoNative.swift`) is compiled once per change
   with `swiftc` into `~/Library/Caches/demo-record/`.
+
+## Sounds: other voices, played aloud
+
+A scene sometimes needs a second voice that the product itself hears: a
+dictation feature transcribing speech, a voice assistant answering. Declare it
+under `sounds` and play it from a scene with `play(name)`:
+
+```js
+sounds: {
+  'phone-note': {
+    say: 'Spoke with Ruth this afternoon. Sleep is better since the routine changed.',
+    // voice: { name: 'en-GB-Chirp3-HD-Aoede', languageCode: 'en-GB' },  // default: the narration voice
+  },
+},
+scenes: [
+  { id: 'dictate', show: 'Dictates the phone note', order: 'do-then-say', say: 'Whisper wrote that, on this Mac.',
+    do: async ({ app, play }) => {
+      await app.cursor.click({ role: 'button', name: 'Dictate' });
+      await play('phone-note');
+      await app.keyboard.press('Escape');
+    } },
+],
+```
+
+Sounds are voiced with Google TTS alongside the narration and cached the same
+way. `play` sends one through the Mac's speakers, so a microphone in the room
+hears it, and waits until it finishes. The build mixes the same clip into the
+video at the moment it played and adds it to the captions, so the viewer hears
+what the product heard. Keep the scene's own narration out of the way, for
+example with `order: 'do-then-say'`, or the two voices talk over each other.
+The room has to be quiet, and the speaker volume up.
 
 ## Outro
 
