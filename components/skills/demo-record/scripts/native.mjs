@@ -53,6 +53,25 @@ export function describe(target) {
   return [target.role, name, target.id && `#${target.id}`, target.className && `.${target.className}`].filter(Boolean).join(' ');
 }
 
+// Catmull-Rom interpolation between stroke points, so a few control points
+// draw a fluid line rather than a polygon.
+export function smooth(points, steps = 8) {
+  if (points.length < 3) return points;
+  const out = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const [p0, p1, p2, p3] = [points[Math.max(0, i - 1)], points[i], points[i + 1], points[Math.min(points.length - 1, i + 2)]];
+    for (let s = 0; s < steps; s++) {
+      const t = s / steps;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      out.push([0, 1].map((k) => 0.5 * ((2 * p1[k]) + (-p0[k] + p2[k]) * t
+        + (2 * p0[k] - 5 * p1[k] + 4 * p2[k] - p3[k]) * t2 + (-p0[k] + 3 * p1[k] - 3 * p2[k] + p3[k]) * t3)));
+    }
+  }
+  out.push(points[points.length - 1]);
+  return out;
+}
+
 export function helperBinary() {
   if (process.platform !== 'darwin') throw new Error('native demos need macOS');
   const source = fs.readFileSync(SOURCE);
@@ -171,6 +190,17 @@ export function appHelpers(helper, { onShow, timeout = 20 } = {}) {
         await helper.request('highlight', { ...q(target), seconds });
       }
       await wait(seconds);
+    }),
+    // Draws pen strokes inside an element (a signature pad, a canvas). Each stroke
+    // is a list of [x, y] points from 0 to 1 across the element's box, so a
+    // drawing scales with the element. Consecutive points are joined smoothly.
+    draw: (target, strokes, { duration = 0.9 } = {}) => withTarget(target, async () => {
+      shown();
+      const box = await helper.request('scrollIntoView', q(target));
+      for (const stroke of strokes) {
+        const points = smooth(stroke).map(([u, v]) => [box.x + u * box.width, box.y + v * box.height]);
+        await helper.request('stroke', { points, duration });
+      }
     }),
     // Selects a phrase inside an element's text with a real drag, for apps that
     // act on a mouse selection. target names the element; text is the phrase.

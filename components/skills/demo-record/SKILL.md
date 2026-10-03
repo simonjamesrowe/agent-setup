@@ -134,6 +134,9 @@ editing any scene.
   real app with the real pointer, so nobody may touch the Mac while it runs.
   It needs Screen Recording and Accessibility for the host app; `check --prompt`
   says which are missing. See "Native macOS apps" in the script format.
+- **A second voice the product hears** (dictation, a voice assistant) is a
+  `sounds` entry played with `play(name)`: Google TTS, out of the speakers, and
+  mixed into the video where it played. Nobody records anything.
 - **Prod is a live audience.** A demo that submits forms or sends messages
   against `https://simonrowe.dev` has real effects (the contact form emails
   Simon). Record side-effecting flows against `local-env`.
