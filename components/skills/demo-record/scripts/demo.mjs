@@ -24,7 +24,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { DIAGRAM_DEPS, diagramDepsInstalled, diagramHelpers, startDiagramServer } from './diagram.mjs';
-import { appHelpers, readFrameIndex, startHelper } from './native.mjs';
+import { appHelpers, helperBinary, readFrameIndex, startHelper } from './native.mjs';
 import { mergeSurfaces } from './surfaces.mjs';
 
 const TTS_URL = 'https://texttospeech.googleapis.com/v1';
@@ -679,10 +679,16 @@ async function cmdCheck(dir) {
 
 // Native demos need the helper to build, both macOS permissions, and the app.
 async function checkNative(native, demoDir, line, prompt) {
+  try {
+    helperBinary();
+  } catch (e) {
+    line(false, 'native helper builds (swiftc)', e.message);
+    return;
+  }
+  line(true, 'native helper builds (swiftc)');
   let helper;
   try {
     helper = startHelper();
-    line(true, 'native helper builds (swiftc)');
     const perms = await helper.request('preflight', { prompt });
     const host = 'System Settings → Privacy & Security, for the app that runs this command (terminal or agent host)';
     const hint = prompt ? host : `${host}; re-run with --prompt to add it to the list`;
@@ -693,7 +699,7 @@ async function checkNative(native, demoDir, line, prompt) {
     const installed = appPath ? fs.existsSync(appPath) : running;
     line(installed, `app ${native.app}`, installed ? (running ? 'running' : 'will be launched') : appPath ? `${appPath} not found` : 'not running, and no native.path to launch it from');
   } catch (e) {
-    line(false, 'native helper', e.message);
+    line(false, 'native helper starts', e.message);
   } finally {
     await helper?.close();
   }
