@@ -169,6 +169,89 @@ Diagram rendering needs Excalidraw, React and esbuild in the demos workspace.
 served, with Excalidraw's own fonts, from a local server that exists only for
 the length of the take.
 
+## Native macOS apps
+
+A demo can film a desktop app (Tauri, Electron, AppKit) instead of, or as
+well as, a website. Add a `native` block and the runner attaches to the app,
+sizes its window, and records that part of the screen with ScreenCaptureKit
+while the browser stays headless for diagrams and the end card. The two
+streams are cut together wherever the picture switches.
+
+```js
+export default {
+  title: "Clinician's Veil — de-identified on the Mac",
+  url: 'native',                                // open on the app, not a website
+  link: 'simonrowe.dev/portfolio/clinicians-veil',  // required: 'native' has no host
+  native: {
+    app: "Clinician's Veil",                    // name or bundle id
+    path: "/Applications/Clinician's Veil.app", // launched if not already running
+    // window: { width: 1440, height: 810 },    // points; must match the viewport's aspect ratio
+  },
+  scenes: [
+    { id: 'open', show: 'Patients list', say: '…',
+      do: async ({ app }) => {
+        await app.cursor.click({ role: 'button', name: 'New note' });
+        await app.waitFor({ role: 'textbox', name: 'Source text' });
+      } },
+    { id: 'diagram', show: 'Architecture diagram', say: '…',
+      do: async ({ diagram }) => { await diagram.show('architecture'); } },   // cuts to the browser
+    { id: 'back', show: 'Back in the app', say: '…',
+      do: async ({ app }) => { await app.show(); } },                         // cuts back
+  ],
+  outro: '…',
+};
+```
+
+Scenes receive `app` alongside the browser helpers:
+
+| Helper | Does |
+| --- | --- |
+| `app.show()` | Cuts the video to the app and brings it to the front |
+| `app.cursor.move(target)` / `.hover` | Glides the real pointer to the element's centre |
+| `app.cursor.click(target, { count })` | Glides over, pauses, clicks (with a ripple) |
+| `app.cursor.type(target, text, { delay })` | Clicks, then types at a human pace |
+| `app.keyboard.type(text)` / `.press('Cmd+Shift+G')` | Types into, or sends a key combination to, whatever has focus |
+| `app.paste(text)` | Pastes through the clipboard, then restores what was on it |
+| `app.scroll(pixels)` / `app.scrollTo(target)` | Wheel scroll under the pointer / scroll an element into view |
+| `app.selectText(target, phrase)` | Drags across a phrase inside the element's text, for apps that act on a mouse selection |
+| `app.highlight(target, seconds, { text })` | Amber outline drawn in an overlay above the app; with `text`, around just that phrase, scrolled into view |
+| `app.waitFor(target, { timeout, gone })` | Waits for an element to appear (or disappear) |
+| `app.find(target)` / `app.text(target)` / `app.exists(target)` | Frame, accessible text, or presence |
+| `app.chooseFile(path)` / `app.saveFile(path)` | Waits for the open or save panel, types the path into Go to Folder, confirms, and waits for it to close |
+| `browser.show()` | Cuts to the browser tab (after a `page.goto`) |
+
+Any `app` input or highlight cuts the picture to the app; `diagram.*` and
+the end card cut to the browser. Lookups (`find`, `waitFor`, `text`) do not
+cut, so a scene can wait on the app while a diagram is showing.
+
+A `target` is an object found through the Accessibility tree:
+`{ role, name, exact, id, className, subrole, index }`. `role` takes the
+Playwright names (`button`, `link`, `textbox`, `checkbox`, `radio`, `tab`,
+`combobox`, `heading`, `text`, `image`, `row`, `cell`, `list`, `group`,
+`menuitem`) or a raw AX role (`AXSheet`). `name` matches the element's
+title, description, value or placeholder: a case-insensitive substring, an
+exact string with `exact: true`, or a RegExp. In a web view `id` and
+`className` match the DOM element's id and classes, which helps where a
+button has only an icon. `index` picks the nth match.
+
+Things that differ from browser scenes:
+
+- **It is the real screen and the real pointer.** Do not touch the mouse or
+  keyboard during `rehearse` or `build`: the helper refuses to send input
+  unless the app is frontmost, and stops the take if the pointer moves on
+  its own. Turn on Do Not Disturb, since anything that appears over the
+  window's area is filmed.
+- **Two permissions**, both for the app that runs the command (the terminal
+  or agent host): Screen & System Audio Recording, and Accessibility.
+  `node $DEMO check <dir> --prompt` adds it to both lists in System Settings;
+  switch them on there, then quit and reopen that app. Turn them off again
+  afterwards if you do not want that app to keep them.
+- **No page problems are reported for the app.** Look at every still.
+- **The window is sized in points.** 1440x810 fits a 14-inch MacBook Pro and
+  is captured from 2880x1620 Retina pixels down to the 1920x1080 video.
+- The helper (`scripts/native/DemoNative.swift`) is compiled once per change
+  with `swiftc` into `~/Library/Caches/demo-record/`.
+
 ## Outro
 
 `outro` must be **exactly two sentences**: what was demoed, then why it matters.

@@ -24,6 +24,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { DIAGRAM_DEPS, diagramDepsInstalled, diagramHelpers, startDiagramServer } from './diagram.mjs';
+import { appHelpers, helperBinary, readFrameIndex, startHelper } from './native.mjs';
+import { mergeSurfaces } from './surfaces.mjs';
 
 const TTS_URL = 'https://texttospeech.googleapis.com/v1';
 const DEFAULT_ENV_FILE = path.join(os.homedir(), 'workspace', 'simonjamesrowe', 'env');
@@ -89,6 +91,14 @@ async function loadDemo(dir) {
   if (!cfg || typeof cfg !== 'object') die('script.mjs must `export default { ... }`');
   if (!cfg.title) errors.push('title is required');
   if (!cfg.url) errors.push('url is required');
+  if (cfg.native !== undefined) {
+    // No platform check here: plan works anywhere, and the helper refuses to start off macOS.
+    if (!cfg.native || typeof cfg.native !== 'object' || !cfg.native.app) errors.push("native needs an app: { app: '<name or bundle id>' }");
+  }
+  if (cfg.url === 'native' && !cfg.native) errors.push("url 'native' needs a native: { app } block");
+  if ((cfg.url === 'native' || String(cfg.url || '').startsWith('diagram:')) && cfg.link === undefined) {
+    errors.push(`url '${cfg.url}' has no host for the end card, so set link`);
+  }
   if (!Array.isArray(cfg.scenes) || cfg.scenes.length === 0) errors.push('scenes must be a non-empty array');
   const ids = new Set();
   for (const [i, s] of (cfg.scenes || []).entries()) {
@@ -101,10 +111,15 @@ async function loadDemo(dir) {
     if (s.do && typeof s.do !== 'function') errors.push(`${where} (${s.id}): 'do' must be an async function`);
     if (s.order && !['together', 'say-then-do', 'do-then-say'].includes(s.order)) errors.push(`${where} (${s.id}): unknown order '${s.order}'`);
   }
+  const viewport = { width: 1920, height: 1080, ...(cfg.viewport || {}) };
+  const nativeWindow = cfg.native?.app ? { width: 1440, height: 810, ...(cfg.native.window || {}) } : null;
+  if (nativeWindow && Math.abs(nativeWindow.width / nativeWindow.height - viewport.width / viewport.height) > 0.01) {
+    errors.push(`native.window ${nativeWindow.width}x${nativeWindow.height} does not have the viewport's ${viewport.width}x${viewport.height} aspect ratio, so the app would be stretched`);
+  }
   const outro = sentences(cfg.outro || '');
   if (outro.length !== 2) errors.push(`outro must be exactly two sentences (found ${outro.length}) — it closes every demo`);
   if (errors.length) die(`invalid script.mjs:\n  - ${errors.join('\n  - ')}`);
-  const viewport = { width: 1920, height: 1080, ...(cfg.viewport || {}) };
+  if (nativeWindow) cfg.native = { ...cfg.native, window: nativeWindow };
   const voice = { ...SITE_VOICE, ...(cfg.voice || {}) };
   const slug = cfg.slug || path.basename(demoDir);
   return { cfg, demoDir, slug, viewport, voice, buildDir: path.join(demoDir, '.build'), outDir: path.join(demoDir, 'out') };
@@ -276,7 +291,7 @@ function helpers(page, context, viewport, getServer) {
 
 async function showEndCard(page, demo) {
   const { cfg } = demo;
-  const link = cfg.link ?? (cfg.url.startsWith('diagram:') ? '' : new URL(cfg.url).host);
+  const link = cfg.link ?? new URL(cfg.url).host;
   await page.evaluate(({ title, lines, link }) => {
     const cursor = document.getElementById('__demo_cursor');
     if (cursor) cursor.style.display = 'none';
@@ -323,7 +338,8 @@ async function record(demo, clips, { headed = false, capture = true } = {}) {
   const { cfg, viewport } = demo;
   const dsf = cfg.deviceScaleFactor || 1;
   const { chromium } = loadPlaywright(demo.demoDir);
-  const browser = await chromium.launch({ headless: !headed });
+  // A visible browser window would sit over the app being filmed and take its focus.
+  const browser = await chromium.launch({ headless: !headed || Boolean(cfg.native) });
   const context = await browser.newContext({
     viewport, deviceScaleFactor: dsf, colorScheme: cfg.colorScheme || 'light',
     ...(cfg.storageState && { storageState: path.resolve(demo.demoDir, cfg.storageState) }),
@@ -337,6 +353,24 @@ async function record(demo, clips, { headed = false, capture = true } = {}) {
   const getServer = () => (diagramServer ??= startDiagramServer(demo.demoDir, demo.buildDir));
   const h = helpers(page, context, viewport, getServer);
   page.on('load', () => { h.park(); });
+  // Which source the video shows: the browser tab or the native app window.
+  // Every change is stamped so the two frame streams can be cut together.
+  const switches = [{ t: -Infinity, surface: cfg.url === 'native' ? 'app' : 'browser' }];
+  const setSurface = (surface) => {
+    if (switches[switches.length - 1].surface !== surface) switches.push({ t: Date.now() / 1000, surface });
+  };
+  let native;
+  if (cfg.native) {
+    native = startHelper();
+    h.app = appHelpers(native, { onShow: () => setSurface('app'), timeout: (cfg.actionTimeoutMs || 20000) / 1000 });
+    h.browser = { show: () => setSurface('browser') };
+    for (const name of ['show', 'focus', 'reset']) {
+      const original = h.diagram[name];
+      h.diagram[name] = (...args) => { setSurface('browser'); return original(...args); };
+    }
+  }
+  const appFramesDir = path.join(demo.buildDir, 'frames', 'app');
+  let appIndex;
   // Backstop for popups PAGE_SCRIPT cannot rewrite (iframes, noopener
   // handlers): close the popup and load its URL in the recorded tab.
   context.on('page', async (popup) => {
@@ -372,8 +406,14 @@ async function record(demo, clips, { headed = false, capture = true } = {}) {
 
   try {
     // `diagram:<name>` opens on a diagram instead of a website.
-    if (cfg.url.startsWith('diagram:')) await h.diagram.show(cfg.url.slice('diagram:'.length));
+    if (native) {
+      const { app, path: appPath, window } = cfg.native;
+      await native.request('attach', { app, path: appPath && path.resolve(demo.demoDir, appPath), ...window });
+    }
+    if (cfg.url === 'native') await page.goto('about:blank');
+    else if (cfg.url.startsWith('diagram:')) await h.diagram.show(cfg.url.slice('diagram:'.length));
     else await page.goto(cfg.url, { waitUntil: 'load' });
+    if (cfg.url !== 'native') setSurface('browser');
     if (cfg.setup) await cfg.setup(h);
     await h.park();
 
@@ -391,6 +431,8 @@ async function record(demo, clips, { headed = false, capture = true } = {}) {
         format: 'jpeg', quality: 92, everyNthFrame: 1,
         maxWidth: viewport.width * dsf, maxHeight: viewport.height * dsf,
       });
+      // Same pixel size as the screencast, so the two streams cut together cleanly.
+      if (native) ({ index: appIndex } = await native.request('capture', { dir: appFramesDir, width: viewport.width * dsf, height: viewport.height * dsf, fps: FPS }));
       await sleep(400);
     }
 
@@ -424,6 +466,7 @@ async function record(demo, clips, { headed = false, capture = true } = {}) {
     }
 
     current = OUTRO_ID;
+    setSurface('browser');
     await showEndCard(page, demo);
     const outroStart = now() - t0;
     const outroDur = clips.get(OUTRO_ID)?.duration ?? estimateSeconds(cfg.outro);
@@ -435,17 +478,32 @@ async function record(demo, clips, { headed = false, capture = true } = {}) {
       await cdp.send('Page.stopScreencast');
       await sleep(200);
     }
+    if (native && capture) {
+      const stopped = await native.request('stop');
+      if (stopped.error) throw new Error(`app capture stopped early: ${stopped.error}`);
+      const merged = mergeSurfaces({ browser: frames, app: readFrameIndex(appIndex) }, switches, t0 + end);
+      for (const g of merged.gaps) console.warn(`  ⚠ no ${g.surface} frames for ${(g.to - g.from).toFixed(1)}s from ${(g.from - t0).toFixed(1)}s; the previous picture is held`);
+      frames.length = 0;
+      for (const f of merged.frames) frames.push(f);
+    }
     for (const p of problems.slice(0, 10)) console.warn(`  ⚠ [${p.scene}] ${p.issue}`);
     if (problems.length > 10) console.warn(`  ⚠ …and ${problems.length - 10} more in .build/timeline.json`);
     return { t0, end, timeline, frames, problems };
   } catch (err) {
     fs.mkdirSync(demo.buildDir, { recursive: true });
-    const shot = path.join(demo.buildDir, `failure-${current}.png`);
-    await page.screenshot({ path: shot }).catch(() => {});
+    let shot = path.join(demo.buildDir, `failure-${current}.png`);
+    const lastApp = switches[switches.length - 1].surface === 'app' && readFrameIndex(appIndex).at(-1);
+    if (lastApp) {
+      shot = path.join(demo.buildDir, `failure-${current}.jpg`);
+      fs.copyFileSync(lastApp.file, shot);
+    } else {
+      await page.screenshot({ path: shot }).catch(() => {});
+    }
     err.message = `scene '${current}' failed: ${err.message}\n  screenshot: ${shot}`;
     throw err;
   } finally {
     if (cdp) await cdp.detach().catch(() => {});
+    if (native) await native.close();
     await context.close().catch(() => {});
     await browser.close().catch(() => {});
     if (diagramServer) await (await diagramServer.catch(() => null))?.close();
@@ -597,6 +655,9 @@ async function cmdCheck(dir) {
     if (pw) {
       try { const b = await pw.chromium.launch(); await b.close(); line(true, 'chromium launches'); } catch (e) { line(false, 'chromium launches', `npx playwright install chromium (${e.message.split('\n')[0]})`); }
     }
+    const script = path.join(path.resolve(dir), 'script.mjs');
+    const cfg = fs.existsSync(script) ? (await import(`${pathToFileURL(script).href}?t=${Date.now()}`)).default : null;
+    if (cfg?.native) await checkNative(cfg.native, path.resolve(dir), line, process.argv.includes('--prompt'));
     if (fs.existsSync(path.join(path.resolve(dir), 'diagrams'))) {
       const ok = diagramDepsInstalled(path.resolve(dir));
       line(ok, 'diagram support (Excalidraw + esbuild)', ok ? '' : `npm i -D ${DIAGRAM_DEPS.join(' ')} in the demos workspace`);
@@ -614,6 +675,34 @@ async function cmdCheck(dir) {
     line(false, `Google TTS via ${auth}`, e.message);
   }
   process.exit(ok ? 0 : 1);
+}
+
+// Native demos need the helper to build, both macOS permissions, and the app.
+async function checkNative(native, demoDir, line, prompt) {
+  try {
+    helperBinary();
+  } catch (e) {
+    line(false, 'native helper builds (swiftc)', e.message);
+    return;
+  }
+  line(true, 'native helper builds (swiftc)');
+  let helper;
+  try {
+    helper = startHelper();
+    const perms = await helper.request('preflight', { prompt });
+    const host = 'System Settings → Privacy & Security, for the app that runs this command (terminal or agent host)';
+    const hint = prompt ? host : `${host}; re-run with --prompt to add it to the list`;
+    line(perms.screenRecording, 'Screen Recording permission', perms.screenRecording ? '' : `Screen & System Audio Recording — ${hint}`);
+    line(perms.accessibility, 'Accessibility permission', perms.accessibility ? '' : `Accessibility — ${hint}`);
+    const appPath = native.path && path.resolve(demoDir, native.path);
+    const running = await helper.request('running', { app: native.app });
+    const installed = appPath ? fs.existsSync(appPath) : running;
+    line(installed, `app ${native.app}`, installed ? (running ? 'running' : 'will be launched') : appPath ? `${appPath} not found` : 'not running, and no native.path to launch it from');
+  } catch (e) {
+    line(false, 'native helper starts', e.message);
+  } finally {
+    await helper?.close();
+  }
 }
 
 // `together` overlaps action and narration; the other two orders run them back to back.
