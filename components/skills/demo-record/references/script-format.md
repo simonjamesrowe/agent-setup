@@ -213,10 +213,11 @@ Scenes receive `app` alongside the browser helpers:
 | `app.keyboard.type(text)` / `.press('Cmd+Shift+G')` | Types into, or sends a key combination to, whatever has focus |
 | `app.paste(text)` | Pastes through the clipboard, then restores what was on it |
 | `app.scroll(pixels)` / `app.scrollTo(target)` | Wheel scroll under the pointer / scroll an element into view |
-| `app.highlight(target, seconds)` | Amber outline drawn in an overlay above the app |
+| `app.selectText(target, phrase)` | Drags across a phrase inside the element's text, for apps that act on a mouse selection |
+| `app.highlight(target, seconds, { text })` | Amber outline drawn in an overlay above the app; with `text`, around just that phrase, scrolled into view |
 | `app.waitFor(target, { timeout, gone })` | Waits for an element to appear (or disappear) |
 | `app.find(target)` / `app.text(target)` / `app.exists(target)` | Frame, accessible text, or presence |
-| `app.chooseFile(path)` | Fills the open panel the app has just shown |
+| `app.chooseFile(path)` / `app.saveFile(path)` | Waits for the open or save panel, types the path into Go to Folder, confirms, and waits for it to close |
 | `browser.show()` | Cuts to the browser tab (after a `page.goto`) |
 
 Any `app` input or highlight cuts the picture to the app; `diagram.*` and

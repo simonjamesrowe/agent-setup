@@ -315,12 +315,24 @@ final class Driver {
       usleep(150_000)
       try click(at: p, count: args["count"] as? Int ?? 1)
       return nil
+    case "textBounds": return rectJSON(try textBounds(args))
+    case "drag":
+      guard let from = args["from"] as? [Double], let to = args["to"] as? [Double], from.count == 2, to.count == 2 else {
+        throw fail("drag needs from: [x, y] and to: [x, y]")
+      }
+      try drag(from: CGPoint(x: from[0], y: from[1]), to: CGPoint(x: to[0], y: to[1]), duration: args["duration"] as? Double ?? 0.6)
+      return nil
     case "type": try type(args["text"] as? String ?? "", delay: args["delay"] as? Double ?? 0.055); return nil
     case "key": try key(args["key"] as? String ?? ""); return nil
     case "paste": try paste(args["text"] as? String ?? ""); return nil
     case "scroll": try scroll(args["pixels"] as? Double ?? 0); return nil
     case "highlight":
-      let r = try locate(args)
+      let r: CGRect
+      if let rect = args["rect"] as? [String: Double], let x = rect["x"], let y = rect["y"], let w = rect["width"], let h = rect["height"] {
+        r = CGRect(x: x, y: y, width: w, height: h)
+      } else {
+        r = try locate(args)
+      }
       let seconds = args["seconds"] as? Double ?? 1.5
       DispatchQueue.main.async { self.overlay.view.highlights.append((r, Date().addingTimeInterval(seconds))) }
       return nil
@@ -436,19 +448,123 @@ final class Driver {
     }
   }
 
+  // Like waitFind, but also waits for the element to be laid out: right after
+  // a navigation an element can exist before it has a size.
+  func waitLaidOut(_ args: [String: Any]) throws -> AXUIElement {
+    let deadline = Date().addingTimeInterval(args["timeout"] as? Double ?? 20)
+    while true {
+      let el = try waitFind(args)
+      if let r = frameOf(el), r.width > 0, r.height > 0 { return el }
+      if Date() > deadline { throw fail("element has no on-screen frame") }
+      usleep(200_000)
+    }
+  }
+
   func locate(_ args: [String: Any]) throws -> CGRect {
-    let el = try waitFind(args)
-    guard let r = frameOf(el), r.width > 0, r.height > 0 else { throw fail("element has no on-screen frame") }
-    return r
+    try retryingStale(args) { el in
+      guard let r = frameOf(el) else { throw fail("element has no on-screen frame") }
+      return r
+    }
+  }
+
+  // Whether a point actually lands on the element: true when the element under
+  // it is the element or one of its descendants. Being inside the window is not
+  // enough, because a scrolled pane clips what it holds.
+  func hits(_ el: AXUIElement, at p: CGPoint) -> Bool {
+    guard let axApp, windowFrame.contains(p) else { return false }
+    var found: AXUIElement?
+    guard AXUIElementCopyElementAtPosition(axApp, Float(p.x), Float(p.y), &found) == .success, var node = found else { return false }
+    // A label-wrapped control reports the label's box as its own, and the
+    // label is what sits under the point: the same box counts as a hit.
+    let own = frameOf(el)
+    for _ in 0..<8 {
+      if CFEqual(node, el) { return true }
+      if let own, let other = frameOf(node), abs(own.minX - other.minX) < 1, abs(own.minY - other.minY) < 1,
+         abs(own.width - other.width) < 1, abs(own.height - other.height) < 1 { return true }
+      guard let parent = attr(node, kAXParentAttribute) else { return false }
+      node = parent as! AXUIElement
+    }
+    return false
+  }
+
+  // Scrolls until `probe` (the element's centre, or a phrase in it) is really
+  // visible, using the element's own AXScrollToVisible, which reaches nested
+  // scrolling panes.
+  //
+  // AXScrollToVisible aligns the element with the scroller's edge, which can
+  // leave it under a sticky header; then the page itself is scrolled toward
+  // the window's middle, with the wheel event placed in the window's side
+  // margin so an inner pane under the pointer is not scrolled instead.
+  func reveal(_ el: AXUIElement, probe: () throws -> CGPoint) throws {
+    if hits(el, at: try probe()) { return }
+    AXUIElementPerformAction(el, "AXScrollToVisible" as CFString)
+    usleep(450_000)
+    for _ in 0..<6 {
+      let p = try probe()
+      if hits(el, at: p) { return }
+      let delta = p.y - windowFrame.midY
+      let margin = CGPoint(x: windowFrame.minX + 24, y: windowFrame.midY)
+      let ticks = max(1, min(30, Int(abs(delta) / 40)))
+      for _ in 0..<ticks {
+        let e = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: Int32(delta > 0 ? -40 : 40), wheel2: 0, wheel3: 0)
+        e?.location = margin
+        e?.post(tap: .cghidEventTap)
+        usleep(12_000)
+      }
+      usleep(350_000)
+    }
+    if hits(el, at: try probe()) { return }
+    throw fail("element is hidden or clipped by a scrolled pane, even after scrolling to it")
+  }
+
+  // Re-runs `body` with a freshly found element while the page replaces the
+  // one it was holding (a re-render after load leaves a stale element with no
+  // frame), until the action's timeout.
+  func retryingStale<T>(_ args: [String: Any], _ body: (AXUIElement) throws -> T) throws -> T {
+    let deadline = Date().addingTimeInterval(args["timeout"] as? Double ?? 20)
+    while true {
+      let el = try waitLaidOut(args)
+      do { return try body(el) } catch let e as HelperError where e.message.contains("no on-screen frame") {
+        if Date() > deadline { throw e }
+        usleep(250_000)
+      }
+    }
   }
 
   func scrollIntoView(_ args: [String: Any]) throws -> CGRect {
-    let el = try waitFind(args)
-    if let r = frameOf(el), windowFrame.contains(CGPoint(x: r.midX, y: r.midY)) { return r }
-    AXUIElementPerformAction(el, "AXScrollToVisible" as CFString)
-    usleep(450_000)
-    guard let r = frameOf(el) else { throw fail("element has no on-screen frame") }
-    return r
+    try retryingStale(args) { el in
+      try reveal(el) {
+        guard let r = frameOf(el) else { throw fail("element has no on-screen frame") }
+        return CGPoint(x: r.midX, y: r.midY)
+      }
+      guard let r = frameOf(el) else { throw fail("element has no on-screen frame") }
+      return r
+    }
+  }
+
+  // Where a substring of an element's text is drawn, so it can be selected
+  // with a real drag (a web page reads a mouse selection, not an AX one).
+  func textBounds(_ args: [String: Any]) throws -> CGRect {
+    try retryingStale(args) { el in
+      try reveal(el) { let r = try bounds(of: el, args); return CGPoint(x: r.midX, y: r.midY) }
+      return try bounds(of: el, args)
+    }
+  }
+
+  func bounds(of el: AXUIElement, _ args: [String: Any]) throws -> CGRect {
+    guard let needle = args["text"] as? String, let value = attr(el, kAXValueAttribute) as? String else {
+      throw fail("textBounds needs text, and an element with a text value")
+    }
+    let found = (value as NSString).range(of: needle)
+    guard found.location != NSNotFound else { throw fail("'\(needle)' is not in the element's text") }
+    var range = CFRange(location: found.location, length: found.length)
+    var bounds: AnyObject?
+    guard AXUIElementCopyParameterizedAttributeValue(el, kAXBoundsForRangeParameterizedAttribute as CFString,
+                                                     AXValueCreate(.cfRange, &range)!, &bounds) == .success,
+          let raw = bounds else { throw fail("the element cannot report bounds for its text") }
+    var rect = CGRect.zero
+    AXValueGetValue(raw as! AXValue, .cgRect, &rect)
+    return rect
   }
 
   func readText(_ args: [String: Any]) throws -> Any? {
@@ -459,9 +575,6 @@ final class Driver {
   func point(_ args: [String: Any]) throws -> CGPoint {
     if let x = args["x"] as? Double, let y = args["y"] as? Double { return CGPoint(x: x, y: y) }
     let r = try scrollIntoView(args)
-    guard windowFrame.insetBy(dx: -2, dy: -2).contains(CGPoint(x: r.midX, y: r.midY)) else {
-      throw fail("element is outside the recorded window")
-    }
     return CGPoint(x: r.midX, y: r.midY)
   }
 
@@ -470,10 +583,17 @@ final class Driver {
   // The focused app. Accessibility answers live but intermittently fails to
   // answer at all; NSWorkspace always answers but is refreshed on the main run
   // loop, so it can lag an activation. Prefer the first, fall back to the second.
+  //
+  // The focused element is asked first: a non-activating panel (Spotlight, a
+  // launcher, a dictation overlay) takes the keyboard without changing the
+  // frontmost app, so only the element's owner shows where keys would land.
   func frontPid() -> pid_t? {
-    if let focused = attr(AXUIElementCreateSystemWide(), kAXFocusedApplicationAttribute) {
-      var pid: pid_t = 0
-      if AXUIElementGetPid(focused as! AXUIElement, &pid) == .success { return pid }
+    let system = AXUIElementCreateSystemWide()
+    for name in [kAXFocusedUIElementAttribute, kAXFocusedApplicationAttribute] {
+      if let focused = attr(system, name) {
+        var pid: pid_t = 0
+        if AXUIElementGetPid(focused as! AXUIElement, &pid) == .success { return pid }
+      }
     }
     return NSWorkspace.shared.frontmostApplication?.processIdentifier
   }
@@ -565,6 +685,23 @@ final class Driver {
     "0": 29, "1": 18, "2": 19, "3": 20, "4": 21, "5": 23, "6": 22, "7": 26, "8": 28, "9": 25, "/": 44, ".": 47, ",": 43,
   ]
 
+  func drag(from: CGPoint, to: CGPoint, duration: Double) throws {
+    try move(to: from, duration: 0.5)
+    try stillFront()
+    CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: from, mouseButton: .left)?.post(tap: .cghidEventTap)
+    let steps = max(2, Int(duration * 60))
+    for i in 1...steps {
+      try stillFront()
+      let t = Double(i) / Double(steps)
+      let q = CGPoint(x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t)
+      CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: q, mouseButton: .left)?.post(tap: .cghidEventTap)
+      lastPointer = q
+      usleep(useconds_t(duration / Double(steps) * 1_000_000))
+    }
+    CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: to, mouseButton: .left)?.post(tap: .cghidEventTap)
+    lastPointer = to
+  }
+
   // "Enter", "Escape", "Cmd+Shift+G", "Ctrl+Alt+D".
   func key(_ combo: String) throws {
     try ensureFront()
@@ -582,11 +719,32 @@ final class Driver {
       }
     }
     guard let code else { throw fail("no key in '\(combo)'") }
+    // Press the modifier keys themselves, not just flags on the key event:
+    // open and save panels run in a separate service that reads the real
+    // modifier state and ignores a flagged-only Cmd+Shift+G.
+    let mods: [(CGEventFlags, CGKeyCode)] = [(.maskCommand, 55), (.maskShift, 56), (.maskAlternate, 58), (.maskControl, 59)]
+      .filter { flags.contains($0.0) }
+    let source = CGEventSource(stateID: .hidSystemState)
+    var held = CGEventFlags()
+    for (flag, key) in mods {
+      held.insert(flag)
+      let e = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: true)
+      e?.flags = held
+      e?.post(tap: .cghidEventTap)
+      usleep(20_000)
+    }
     for down in [true, false] {
-      let e = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down)
+      let e = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down)
       e?.flags = flags
       e?.post(tap: .cghidEventTap)
       usleep(30_000)
+    }
+    for (flag, key) in mods.reversed() {
+      held.remove(flag)
+      let e = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: false)
+      e?.flags = held
+      e?.post(tap: .cghidEventTap)
+      usleep(20_000)
     }
   }
 

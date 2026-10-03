@@ -127,6 +127,28 @@ export function appHelpers(helper, { onShow, timeout = 20 } = {}) {
   };
   cursor.hover = cursor.move;
 
+  const sheet = { roles: ['AXSheet'] };
+  async function panel(file) {
+    shown();
+    const until = async (present, secs) => {
+      const deadline = Date.now() + secs * 1000;
+      while ((await helper.request('exists', { target: sheet })) !== present) {
+        if (Date.now() > deadline) throw new Error(`file panel did not ${present ? 'open' : 'close'} within ${secs}s`);
+        await sleep(200);
+      }
+    };
+    await until(true, 15);
+    await wait(0.6);
+    await helper.request('key', { key: 'Cmd+Shift+G' });
+    await wait(0.8);
+    await helper.request('type', { text: path.resolve(file), delay: 0.01 });
+    await wait(0.5);
+    await helper.request('key', { key: 'Enter' });
+    await wait(1);
+    await helper.request('key', { key: 'Enter' });
+    await until(false, 15);
+  }
+
   return {
     // Cuts the video to the app and brings it to the front.
     async show() { shown(); await helper.request('front'); },
@@ -138,10 +160,25 @@ export function appHelpers(helper, { onShow, timeout = 20 } = {}) {
     paste: async (text) => { shown(); await helper.request('paste', { text }); },
     scroll: async (pixels) => { shown(); await helper.request('scroll', { pixels }); await wait(0.3); },
     scrollTo: (target) => withTarget(target, async () => { shown(); await helper.request('scrollIntoView', q(target)); }),
-    highlight: (target, seconds = 1.5) => withTarget(target, async () => {
+    // With { text }, outlines just that phrase inside the element (scrolled
+    // into view), for a long block of text taller than the window.
+    highlight: (target, seconds = 1.5, { text } = {}) => withTarget(target, async () => {
       shown();
-      await helper.request('highlight', { ...q(target), seconds });
+      if (text) {
+        const rect = await helper.request('textBounds', { ...q(target), text });
+        await helper.request('highlight', { rect, seconds });
+      } else {
+        await helper.request('highlight', { ...q(target), seconds });
+      }
       await wait(seconds);
+    }),
+    // Selects a phrase inside an element's text with a real drag, for apps that
+    // act on a mouse selection. target names the element; text is the phrase.
+    selectText: (target, text, { duration = 0.6 } = {}) => withTarget(target, async () => {
+      shown();
+      const r = await helper.request('textBounds', { ...q(target), text });
+      const y = r.y + r.height / 2;
+      await helper.request('drag', { from: [r.x + 1, y], to: [r.x + r.width - 1, y], duration });
     }),
     find: (target, opts) => withTarget(target, () => helper.request('find', q(target, opts))),
     exists: (target) => helper.request('exists', { target: toQuery(target) }),
@@ -156,18 +193,11 @@ export function appHelpers(helper, { onShow, timeout = 20 } = {}) {
         await sleep(250);
       }
     },
-    // Chooses a file in the open panel the app has just shown.
-    async chooseFile(file) {
-      shown();
-      await wait(0.8);
-      await helper.request('key', { key: 'Cmd+Shift+G' });
-      await wait(0.6);
-      await helper.request('type', { text: path.resolve(file), delay: 0.01 });
-      await wait(0.4);
-      await helper.request('key', { key: 'Enter' });
-      await wait(0.8);
-      await helper.request('key', { key: 'Enter' });
-    },
+    // Fills the open or save panel the app has just shown: waits for its sheet,
+    // types the full path into Go to Folder, confirms, and waits for it to close.
+    // A save panel accepts a path ending in the file name.
+    async chooseFile(file) { await panel(file); },
+    async saveFile(file) { await panel(file); },
     wait,
   };
 }
