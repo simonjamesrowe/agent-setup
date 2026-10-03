@@ -80,7 +80,7 @@ Without `--tools`, `agent-setup` auto-detects which of `claude`, `gemini` and
 | `code-review-triage`   | Diagnose why the automated code reviewer did not review a pull request on simonrowe.dev. |
 | `content-source-add`   | Add a new content-aggregation source (blog/news/events scraper) to simonrowe.dev. |
 | `demo-plan`            | Grill Simon on a product demo's aim, audience and key messages, then draft a scene-by-scene script for approval. |
-| `demo-record`          | Build a narrated demo video from an approved script: Google Cloud TTS voice-over, full-viewport Playwright recording across sites, hand-drawn Excalidraw diagram walkthroughs, ffmpeg mix to MP4 with captions. |
+| `demo-record`          | Build a narrated demo video from an approved script: Google Cloud TTS voice-over, full-viewport Playwright recording across sites, native macOS apps filmed with ScreenCaptureKit, hand-drawn Excalidraw diagram walkthroughs, ffmpeg mix to MP4 with captions. |
 | `dependency-cve-fix`   | Fix OWASP Dependency-Track CVE findings in simonrowe.dev by bumping the affected dependency, opening a PR, and driving CI to green. |
 | `embabel-guide`        | Run the Embabel docs MCP server (`embabel/guide`) locally and register it, for authoring Embabel agent code on the JVM. |
 | `frontend-design`      | Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. |
