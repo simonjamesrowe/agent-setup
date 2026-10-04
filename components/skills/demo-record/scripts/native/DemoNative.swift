@@ -604,13 +604,25 @@ final class Driver {
     return NSWorkspace.shared.frontmostApplication?.processIdentifier
   }
 
+  func screenLocked() -> Bool {
+    NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.loginwindow"
+  }
+
   func ensureFront() throws {
     guard let app else { throw fail("attach first") }
     if frontPid() == app.processIdentifier { return }
+    if screenLocked() { throw fail("the screen is locked; unlock the Mac and keep it awake (caffeinate) for the take") }
     app.activate()
-    for _ in 0..<20 {
+    for attempt in 0..<30 {
       usleep(100_000)
       if frontPid() == app.processIdentifier { return }
+      // macOS treats a background process's activate() as a request it may
+      // decline while someone works in another app; LaunchServices is honoured.
+      if attempt == 8, let url = app.bundleURL {
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { _, _ in }
+      }
     }
     throw fail("\(app.localizedName ?? "the app") is not frontmost; refusing to send input to another app")
   }
@@ -629,7 +641,13 @@ final class Driver {
   }
 
   func guardPointer() throws {
-    guard let last = lastPointer, let now = CGEvent(source: nil)?.location else { return }
+    guard let last = lastPointer, var now = CGEvent(source: nil)?.location else { return }
+    // The system cursor can lag the last posted event by a frame on a fast
+    // glide, so give it a moment to arrive before calling it someone else's move.
+    for _ in 0..<5 where hypot(now.x - last.x, now.y - last.y) > 4 {
+      usleep(20_000)
+      now = CGEvent(source: nil)?.location ?? now
+    }
     if hypot(now.x - last.x, now.y - last.y) > 4 {
       throw fail("the mouse moved during the take (someone touched it?); stopping so no input goes astray")
     }

@@ -242,6 +242,9 @@ Things that differ from browser scenes:
   unless the app is frontmost, and stops the take if the pointer moves on
   its own. Turn on Do Not Disturb, since anything that appears over the
   window's area is filmed.
+- **The Mac stays awake.** The runner holds `caffeinate` for the length of a
+  native take; a locked screen is reported as such, since nothing can be
+  brought to the front behind the lock screen.
 - **Two permissions**, both for the app that runs the command (the terminal
   or agent host): Screen & System Audio Recording, and Accessibility.
   `node $DEMO check <dir> --prompt` adds it to both lists in System Settings;

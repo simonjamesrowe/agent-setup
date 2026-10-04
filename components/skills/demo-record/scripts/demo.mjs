@@ -372,6 +372,11 @@ async function record(demo, clips, { headed = false, capture = true } = {}) {
   };
   let native;
   if (cfg.native) {
+    // A display that sleeps or locks mid-take leaves nothing to film or drive.
+    // Best-effort: without caffeinate the take still runs, it just may meet a lock screen.
+    const awake = spawn('caffeinate', ['-dimsu', '-w', String(process.pid)], { stdio: 'ignore' });
+    awake.on('error', (e) => console.warn(`  ⚠ caffeinate unavailable (${e.message}); keep the Mac awake by hand`));
+    awake.unref();
     native = startHelper();
     h.app = appHelpers(native, { onShow: () => setSurface('app'), timeout: (cfg.actionTimeoutMs || 20000) / 1000 });
     h.browser = { show: () => setSurface('browser') };
