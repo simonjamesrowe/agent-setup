@@ -372,6 +372,8 @@ async function record(demo, clips, { headed = false, capture = true } = {}) {
   };
   let native;
   if (cfg.native) {
+    // A display that sleeps or locks mid-take leaves nothing to film or drive.
+    spawn('caffeinate', ['-dimsu', '-w', String(process.pid)], { stdio: 'ignore' }).unref();
     native = startHelper();
     h.app = appHelpers(native, { onShow: () => setSurface('app'), timeout: (cfg.actionTimeoutMs || 20000) / 1000 });
     h.browser = { show: () => setSurface('browser') };
