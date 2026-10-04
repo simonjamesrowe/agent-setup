@@ -316,6 +316,12 @@ final class Driver {
       try click(at: p, count: args["count"] as? Int ?? 1)
       return nil
     case "textBounds": return rectJSON(try textBounds(args))
+    case "stroke":
+      guard let raw = args["points"] as? [[Double]], raw.count >= 2, raw.allSatisfy({ $0.count == 2 }) else {
+        throw fail("stroke needs at least two [x, y] points")
+      }
+      try stroke(raw.map { CGPoint(x: $0[0], y: $0[1]) }, duration: args["duration"] as? Double ?? 0.8)
+      return nil
     case "drag":
       guard let from = args["from"] as? [Double], let to = args["to"] as? [Double], from.count == 2, to.count == 2 else {
         throw fail("drag needs from: [x, y] and to: [x, y]")
@@ -684,6 +690,23 @@ final class Driver {
     "n": 45, "o": 31, "p": 35, "q": 12, "r": 15, "s": 1, "t": 17, "u": 32, "v": 9, "w": 13, "x": 7, "y": 16, "z": 6,
     "0": 29, "1": 18, "2": 19, "3": 20, "4": 21, "5": 23, "6": 22, "7": 26, "8": 28, "9": 25, "/": 44, ".": 47, ",": 43,
   ]
+
+  // One continuous pen stroke through `points`: press at the first, drag through
+  // the rest at an even pace, release at the last. For signature pads and canvases.
+  func stroke(_ points: [CGPoint], duration: Double) throws {
+    try move(to: points[0], duration: 0.4)
+    try stillFront()
+    CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: points[0], mouseButton: .left)?.post(tap: .cghidEventTap)
+    let pause = useconds_t(duration / Double(points.count - 1) * 1_000_000)
+    for p in points.dropFirst() {
+      try stillFront()
+      CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: p, mouseButton: .left)?.post(tap: .cghidEventTap)
+      lastPointer = p
+      usleep(pause)
+    }
+    CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: points.last!, mouseButton: .left)?.post(tap: .cghidEventTap)
+    lastPointer = points.last!
+  }
 
   func drag(from: CGPoint, to: CGPoint, duration: Double) throws {
     try move(to: from, duration: 0.5)
