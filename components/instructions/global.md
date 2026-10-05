@@ -96,6 +96,14 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
 - **Attach an `.on('error', ...)` listener to every Node `spawn()` child
   process.** An unhandled `error` event from a failed spawn crashes the parent
   process; log or gracefully degrade instead.
+- **Document actual implementation behavior for calculated or timed
+  operations.** When docs describe a formula or timing rule, make sure it
+  matches every code path, not just the common one; use the same formula for
+  estimates/validations as the one execution actually applies.
+- **Prefer runtime feature detection over bumping a minimum version** when
+  code wants a newer optional API. Detect the feature and fall back
+  gracefully instead of raising `engines`/`package.json` version constraints,
+  so the package still works for users on older runtimes.
 
 ## Git conventions (this org)
 
