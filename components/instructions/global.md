@@ -104,6 +104,10 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   code wants a newer optional API. Detect the feature and fall back
   gracefully instead of raising `engines`/`package.json` version constraints,
   so the package still works for users on older runtimes.
+- **When a guard flag protects against an incomplete/partial data state, audit
+  every code path that can leave data incomplete**, not just the interruption
+  cases found first — including a resource limit being hit while work is still
+  queued. Test that boundary directly.
 
 ## Git conventions (this org)
 
