@@ -93,6 +93,9 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   field.** The default identity/array behavior leaks raw bytes into logs and
   breaks equality; add a regression test asserting the sensitive data appears
   in neither the string output nor equality checks.
+- **Attach an `.on('error', ...)` listener to every Node `spawn()` child
+  process.** An unhandled `error` event from a failed spawn crashes the parent
+  process; log or gracefully degrade instead.
 
 ## Git conventions (this org)
 
