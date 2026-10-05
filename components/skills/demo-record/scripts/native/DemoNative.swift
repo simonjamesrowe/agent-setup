@@ -498,9 +498,9 @@ final class Driver {
   // scrolling panes.
   //
   // AXScrollToVisible aligns the element with the scroller's edge, which can
-  // leave it under a sticky header; then the page itself is scrolled toward
-  // the window's middle, with the wheel event placed in the window's side
-  // margin so an inner pane under the pointer is not scrolled instead.
+  // leave it under a sticky header; then the pointer moves to the window's side
+  // margin and the page itself is scrolled toward the window's middle, so an
+  // inner pane under the pointer is not scrolled instead.
   func reveal(_ el: AXUIElement, probe: () throws -> CGPoint) throws {
     if hits(el, at: try probe()) { return }
     AXUIElementPerformAction(el, "AXScrollToVisible" as CFString)
@@ -510,6 +510,10 @@ final class Driver {
       if hits(el, at: p) { return }
       let delta = p.y - windowFrame.midY
       let margin = CGPoint(x: windowFrame.minX + 24, y: windowFrame.midY)
+      // A scroll event placed at a point moves the real cursor there, so glide
+      // there first, as a person would; otherwise the pointer guard sees a move
+      // it did not make, and the video shows the cursor jump.
+      try move(to: margin, duration: 0.35)
       let ticks = max(1, min(30, Int(abs(delta) / 40)))
       for _ in 0..<ticks {
         let e = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: Int32(delta > 0 ? -40 : 40), wheel2: 0, wheel3: 0)
