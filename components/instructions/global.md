@@ -127,6 +127,15 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   comparison.** Don't rely on unstated backend data conventions (e.g. "the API
   always lowercases this field") for case handling — normalize consistently at
   the call site so matching works regardless of upstream data format.
+- **Route every code path that mutates client-submitted data through the same
+  validation function.** If one entry point (e.g. `applyChanges()`) validates
+  before mutating, every alternate entry point (e.g. `cooked()`) must call that
+  same validator rather than reimplementing or skipping it — validate all
+  inputs first, then fail atomically if any are invalid.
+- **When declining a security finding, say why in a code comment**, not just in
+  the PR thread. Record the reasoning (e.g. why a CSRF or null check doesn't
+  apply, or an assumption like stateless auth or a library guarantee) so it
+  survives across reviewers and future library upgrades.
 
 ## Git conventions (this org)
 
