@@ -123,6 +123,10 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   real start on the first day's span but a midnight artifact on later days —
   check the part/position (e.g. `span.part === 'first'`) before rendering it,
   and show a day-only label otherwise.
+- **Apply the same case normalization to every branch of a search/filter
+  comparison.** Don't rely on unstated backend data conventions (e.g. "the API
+  always lowercases this field") for case handling — normalize consistently at
+  the call site so matching works regardless of upstream data format.
 
 ## Git conventions (this org)
 
