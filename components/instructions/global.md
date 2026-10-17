@@ -108,6 +108,11 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   every code path that can leave data incomplete**, not just the interruption
   cases found first — including a resource limit being hit while work is still
   queued. Test that boundary directly.
+- **Preserve exact regex semantics when replacing with string operations**
+  (`indexOf`, `startsWith`, etc.). A regex encodes implicit ordering,
+  quantifier, and anchor constraints that must be reproduced explicitly in the
+  string logic; pin behavioral equivalence with tests for every matching path,
+  not just the happy path.
 
 ## Git conventions (this org)
 
