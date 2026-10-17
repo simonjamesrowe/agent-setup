@@ -118,6 +118,11 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   still establishes the control's accessible name — a linter flagging "missing
   label text" there is a false positive; confirm with the accessibility tree
   before "fixing" it.
+- **When splitting a multi-day record into per-day pieces, a reused field can
+  mean different things per piece.** A multi-day event's `startTime` is the
+  real start on the first day's span but a midnight artifact on later days —
+  check the part/position (e.g. `span.part === 'first'`) before rendering it,
+  and show a day-only label otherwise.
 
 ## Git conventions (this org)
 
