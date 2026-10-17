@@ -113,6 +113,11 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   quantifier, and anchor constraints that must be reproduced explicitly in the
   string logic; pin behavioral equivalence with tests for every matching path,
   not just the happy path.
+- **Verify accessibility before reflexively fixing a linter warning.** A
+  `<label htmlFor="...">` whose text is split across nested child elements
+  still establishes the control's accessible name — a linter flagging "missing
+  label text" there is a false positive; confirm with the accessibility tree
+  before "fixing" it.
 
 ## Git conventions (this org)
 
