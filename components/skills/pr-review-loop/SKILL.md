@@ -149,6 +149,11 @@ tested, and anything a reviewer should look at first. If the change has a
 deliberate omission or an accepted trade-off, say so in the body — that is where a
 declined finding gets justified in step 5.
 
+**Combining multiple distinct features or commits into one pull request:** give
+each its own dedicated section in the body, not one merged summary. That lets a
+reviewer evaluate each independently and lets either be reverted without
+touching the other.
+
 For behavioral changes like timeouts or limits, state the actual configured
 value ("timeout raised to 30s"), not just the direction of change ("timeout
 increased") — a reviewer cannot verify the code matches a description that
