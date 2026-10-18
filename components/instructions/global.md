@@ -132,10 +132,20 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   before mutating, every alternate entry point (e.g. `cooked()`) must call that
   same validator rather than reimplementing or skipping it — validate all
   inputs first, then fail atomically if any are invalid.
-- **When declining a security finding, say why in a code comment**, not just in
-  the PR thread. Record the reasoning (e.g. why a CSRF or null check doesn't
-  apply, or an assumption like stateless auth or a library guarantee) so it
-  survives across reviewers and future library upgrades.
+- **When declining a security finding or automated linter/quality warning, say
+  why in a code comment**, not just in the PR thread. Record the reasoning
+  (e.g. why a CSRF or null check doesn't apply, or an assumption like
+  stateless auth or a library guarantee, or a constraint that makes the
+  linter's suggestion inapplicable) so it survives across reviewers and future
+  library upgrades, and prevents the same finding being re-raised later.
+- **Add a regression test for every security or sensitive-data fix** (raw data
+  exposure, memory/byte handling, auth bypass, etc.) that exercises the fix and
+  would fail if the original defect were reintroduced — not just a test that
+  the feature works.
+- **Keep timer-based and ref-based tracking of the same concept in sync** (e.g.
+  a suppression window held in both React state and a ref). Refresh both on
+  every trigger event, or derive the visible UI state from the single
+  authoritative source, so the displayed state can't outlive the real one.
 
 ## Git conventions (this org)
 
