@@ -146,6 +146,11 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   a suppression window held in both React state and a ref). Refresh both on
   every trigger event, or derive the visible UI state from the single
   authoritative source, so the displayed state can't outlive the real one.
+- **Verify new constants against existing references before committing them.**
+  When introducing a constant or config value representing a real-world entity
+  (name, title, identifier), grep specs, comments, and backend code for
+  existing references to that entity and ensure the value matches — mismatches
+  are user-visible accuracy regressions.
 
 ## Git conventions (this org)
 
