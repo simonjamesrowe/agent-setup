@@ -1,0 +1,4 @@
+interface:
+  display_name: "Verify Honeycomb"
+  short_description: "Check deployed traces through Playwright MCP"
+  default_prompt: "Use $honeycomb-verify to verify the deployed Honeycomb pipeline and record trace evidence."

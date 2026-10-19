@@ -27,6 +27,11 @@ Pi. The backend no longer has a Docker socket or `/data-operations/redeploy`.
    `https://api.simonrowe.dev/api/blogs`, then the changed feature in a browser.
    The bare domain's redirect and the frontend GET `/mcp` SPA route do not prove
    backend health. Actuator is on an internal management port, not the public API.
+6. If Honeycomb is enabled or this deployment changes its pipeline, run
+   `honeycomb-verify` through Playwright MCP after the runtime checks. Include its
+   evidence and result in the deployment report. Expected disabled/expired export
+   is `NOT RUN`, not verified ingestion; unexpected inactivity needs investigation.
+   This browser check is agent-driven, separate from Temporal's automated checks.
 
 ## Manual recovery or redeploy
 

@@ -85,6 +85,7 @@ Without `--tools`, `agent-setup` auto-detects which of `claude`, `gemini` and
 | `embabel-guide`        | Run the Embabel docs MCP server (`embabel/guide`) locally and register it, for authoring Embabel agent code on the JVM. |
 | `frontend-design`      | Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. |
 | `langfuse-verify`      | Verify Langfuse LLM trace plumbing for simonrowe.dev end to end. |
+| `honeycomb-verify`     | Verify fresh deployed traces and privacy fields through Playwright MCP. |
 | `local-env`            | Start, stop and verify the simonrowe.dev local development environment. |
 | `mongock-migration`    | Create a Mongock change unit for simonrowe.dev data changes with the repo's idempotency and test patterns. |
 | `prod-backup-ops`      | Trigger, verify and manage simonrowe.dev production backups to Google Drive. |
