@@ -19,7 +19,7 @@ supplement queries but does not replace the requested browser verification.
 2. Inspect effective enablement, sampling percentage and capture deadline without
    printing keys or whole container environments. Confirm the ingest key belongs
    to the intended environment through its metadata, never by displaying it.
-   Expected disabled/expired export is `NOT RUN`; unexpectedly disabled export
+   Expected disabled/expired/0% capture is `NOT RUN`; unexpectedly inactive export
    is `FAIL`. Do not enable export, extend expiry or change sampling merely to
    obtain a pass outside the authorized deployment/capture scope.
 3. In Honeycomb, confirm the selected team/environment and Free plan. Record
