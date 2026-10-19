@@ -158,7 +158,7 @@ metadata at all), and Codex's unauthorized output is still unverified.
 
 #### Honeycomb and Amplitude
 
-Install either or both with `agent-setup install --with honeycomb --with amplitude`.
+Install either or both with `agent-setup install --with honeycomb,amplitude`.
 The same authorization commands above apply, replacing `linear` with the server name.
 Signing into the website with Google does not itself authorize an MCP client.
 
