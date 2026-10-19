@@ -29,6 +29,10 @@ the supporting material. Do not invent implementation details to make the narrat
 
 ## 2. Draft locally
 
+Write in Simon's voice: read [`references/voice.md`](references/voice.md) first, and run its
+checklist on the finished draft. It is first person, casual and lightly Australian, opens on a
+real moment rather than a definition, and owns at least one mistake.
+
 Write the canonical draft under `docs/blogs/<slug>.md`. Use ordinary Markdown supported by the
 site renderer:
 
