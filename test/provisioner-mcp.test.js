@@ -35,8 +35,8 @@ function makeHomeWithGeminiSettings(mcpServers) {
 }
 
 test('server catalog', () => {
-  assert.deepStrictEqual(MCP_SERVERS.map((s) => s.name).sort(), ['embabel-guide', 'excalidraw', 'javadocs', 'linear', 'playwright', 'simonrowe-dev']);
-  assert.deepStrictEqual(MCP_SERVERS.filter((s) => s.optional).map((s) => s.name), ['embabel-guide']);
+  assert.deepStrictEqual(MCP_SERVERS.map((s) => s.name).sort(), ['amplitude', 'embabel-guide', 'excalidraw', 'honeycomb', 'javadocs', 'linear', 'playwright', 'simonrowe-dev']);
+  assert.deepStrictEqual(MCP_SERVERS.filter((s) => s.optional).map((s) => s.name), ['embabel-guide', 'honeycomb', 'amplitude']);
   // linear is always-on: it is a hosted endpoint that costs nothing to have registered, unlike
   // embabel-guide which needs a local Docker/Neo4j app running to be anything but a dead server.
   assert.ok(!MCP_SERVERS.find((s) => s.name === 'linear').optional);
@@ -361,3 +361,31 @@ test('an adapter with no authHint gets a truthful note, never "undefined"', () =
   assert.strictEqual(installedRow.status, 'installed');
   assert.strictEqual(installedRow.note, undefined);
 });
+
+for (const name of ['honeycomb', 'amplitude']) {
+  test(`${name} requires opt-in and uses each adapter's OAuth hint`, () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-setup-observability-'));
+    const calls = [];
+    const exec = (bin, args) => {
+      calls.push([bin, ...args]);
+      return args[1] === 'get'
+        ? { status: 1, stdout: '', stderr: 'not found' }
+        : { status: 0, stdout: 'ok', stderr: '' };
+    };
+    try {
+      const skipped = provisionMcp({ adapters: ADAPTERS, exec, home });
+      assert.ok(skipped.filter(r => r.item === name).every(r => r.status === 'optional'));
+      assert.ok(!calls.some(call => call.includes(name)));
+      const results = provisionMcp({ adapters: ADAPTERS, exec, home, with: [name] });
+      for (const adapter of ADAPTERS) {
+        const row = results.find(r => r.item === name && r.tool === adapter.key);
+        assert.strictEqual(row.status, 'installed');
+        assert.strictEqual(row.note, adapter.authHint(name));
+        const url = name === 'honeycomb' ? 'https://mcp.honeycomb.io/mcp' : 'https://mcp.amplitude.com/mcp';
+        assert.ok(calls.some(call => call[0] === adapter.binary && call.includes(name) && call.includes(url)));
+      }
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+}

@@ -85,6 +85,7 @@ Without `--tools`, `agent-setup` auto-detects which of `claude`, `gemini` and
 | `embabel-guide`        | Run the Embabel docs MCP server (`embabel/guide`) locally and register it, for authoring Embabel agent code on the JVM. |
 | `frontend-design`      | Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one. |
 | `langfuse-verify`      | Verify Langfuse LLM trace plumbing for simonrowe.dev end to end. |
+| `honeycomb-verify`     | Verify fresh deployed traces and privacy fields through Playwright MCP. |
 | `local-env`            | Start, stop and verify the simonrowe.dev local development environment. |
 | `mongock-migration`    | Create a Mongock change unit for simonrowe.dev data changes with the repo's idempotency and test patterns. |
 | `prod-backup-ops`      | Trigger, verify and manage simonrowe.dev production backups to Google Drive. |
@@ -110,11 +111,13 @@ Registered at **user scope** for every detected agent.
 | `javadocs` | HTTP (`javadocs.dev`) | none | Java/Kotlin/Scala API docs from Maven Central |
 | `linear` | HTTP (`mcp.linear.app`) | OAuth (interactive, first use) | Linear issues, projects and comments |
 | `simonrowe-dev` | HTTP (`api.simonrowe.dev/mcp`) | none | The site's own content — profile, jobs, skills, blogs, news, events, code examples |
+| `honeycomb` | HTTP | OAuth | Application traces — **opt-in** with `--with honeycomb` |
+| `amplitude` | HTTP | OAuth | Product analytics — **opt-in** with `--with amplitude` |
 | `embabel-guide` | stdio (`mcp-remote` → `localhost:1337`) | your own LLM key | Embabel framework docs — **opt-in**, see below |
 | `moderne` | stdio (local, via the `mod` CLI) | none for today's recipes | OpenRewrite recipe search and deterministic execution |
 
 `playwright`, `excalidraw`, `javadocs`, `linear`, `simonrowe-dev` and
-`embabel-guide` are `agent-setup`'s own catalog (`MCP_SERVERS` in
+`embabel-guide`, `honeycomb` and `amplitude` are `agent-setup`'s own catalog (`MCP_SERVERS` in
 `lib/provisioners/mcp.js`). `moderne` is **not** in that array — it's
 registered by the `mod` CLI itself (`mod config agent-tools <agent> install`,
 see CLI tools below), not by `agent-setup`'s MCP provisioner.
@@ -132,7 +135,7 @@ A server already registered at project or local scope would shadow the
 user-scope one, so that's reported as `failed` with the `mcp remove` command
 to fix it rather than being silently overwritten.
 
-`linear` is the only catalog server needing credentials, and it uses OAuth, so
+`linear`, `honeycomb` and `amplitude` use interactive OAuth, so
 registration and authorization are separate steps: `install` registers it, then
 **you sign in once yourself**, with your agent's own command:
 
@@ -153,6 +156,39 @@ browser flow `agent-setup` cannot perform for you. Auth state is only
 *detected* for Claude Code: `claude mcp get` prints a `Status:` line that says
 so, Gemini's check reads `~/.gemini/settings.json` (which carries no auth
 metadata at all), and Codex's unauthorized output is still unverified.
+
+#### Honeycomb and Amplitude
+
+Install either or both with `agent-setup install --with honeycomb,amplitude`.
+The same authorization commands above apply, replacing `linear` with the server name.
+Signing into the website with Google does not itself authorize an MCP client.
+
+The catalog defaults to US. For an EU account, remove and re-add the server using
+its regional URL **before** signing in:
+
+| Server | US | EU |
+| --- | --- | --- |
+| Honeycomb | `https://mcp.honeycomb.io/mcp` | `https://mcp.eu1.honeycomb.io/mcp` |
+| Amplitude | `https://mcp.amplitude.com/mcp` | `https://mcp.eu.amplitude.com/mcp` |
+
+For example: `codex mcp remove honeycomb`, then
+`codex mcp add honeycomb --url https://mcp.eu1.honeycomb.io/mcp`.
+Existing registrations are matched by name, so subsequent installs preserve this override.
+Claude Code uses `mcp remove <name> -s user` and
+`mcp add --scope user --transport http <name> <url>`.
+
+Honeycomb MCP is included in Free; enable Team Intelligence and authorize only
+`mcp:read` for investigation (`codex mcp login honeycomb --scopes mcp:read`).
+Its ingest key is a separate server-side credential and cannot authorize MCP queries.
+For Amplitude, request read-only access with
+`codex mcp login amplitude --scopes all:read,offline_access` (verified against
+the hosted US OAuth server). Amplitude OAuth also inherits the user's project permissions; use a role with MCP read
+access and no write access if appropriate. Service-account authentication requires
+Enterprise, so it is not part of this Free-tier setup. Neither integration ships tokens.
+Verify a read-only tool call after login; registration alone is not proof of access.
+
+Sources: [Honeycomb MCP](https://docs.honeycomb.io/integrations/mcp/configuration-guide)
+and [Amplitude MCP](https://amplitude.com/docs/amplitude-ai/amplitude-mcp).
 
 #### Read-only Linear
 

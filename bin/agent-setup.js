@@ -16,7 +16,7 @@ Flags:
   --skip <a,b>          skip provisioners: skills,instructions,mcp,plugins
   --target <dir>        override home directory (testing/CI); force-skips mcp
                         and plugins, which mutate real tool config regardless
-  --with <a,b>          opt in to optional components: embabel-guide
+  --with <a,b>          opt in to optional components: embabel-guide,honeycomb,amplitude
 `;
 
 function parseArgs(argv) {

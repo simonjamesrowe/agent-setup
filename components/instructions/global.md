@@ -157,6 +157,7 @@ Reach for these before improvising:
 - `content-source-add` — add a content-aggregation scraper source
 - `chat-e2e-verify` — browser-driven chatbot quality pass
 - `langfuse-verify` — check LLM trace plumbing end-to-end
+- `honeycomb-verify` — verify deployed Honeycomb traces using Playwright MCP
 - `pr-review-loop` — **open a pull request and drive it to green.** Owns the whole
   sequence: pre-flight locally, open the PR, wait on all four signals (CI, reviewer check,
   review threads, SonarQube Cloud), triage findings, push, re-wait, bounded. Use it
