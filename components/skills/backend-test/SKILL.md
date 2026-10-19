@@ -211,6 +211,15 @@ Fix the violation, add the test, or explain why the exclusion list should change
   `@TestPropertySource(properties = "mongock.enabled=true")`. See
   `mongock-migration`.
 - `checkstyleTest` is easy to forget locally — run both checkstyle tasks together.
+- **Multi-line strings are text blocks, and checkstyle enforces it.** Write
+  `"""` blocks with `.formatted(...)` for values, never `"line one " + "line two"`
+  across lines. A `\` at a line end continues without a newline, which is how a
+  long `@Tool` description or log message stays one line at runtime. The
+  `NoLiteralConcatenationAcrossLines` rule in `config/checkstyle/google_checks.xml`
+  fails `checkstyleMain`/`checkstyleTest` on the old form. When converting
+  existing strings, compare the compiled constants rather than trusting your eye:
+  a dropped trailing space or a stray newline changes a prompt with no test
+  failing.
 - `jacocoTestReport` `dependsOn(tasks.test)`, so asking only for the report still
   runs the suite. There is no "report from the last run" shortcut.
 - Root `./gradlew check` also covers `software-factory`; use module-qualified
