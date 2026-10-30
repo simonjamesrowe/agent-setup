@@ -19,7 +19,7 @@ plugins for whichever of the three it finds on your `PATH`.
 | Org skills (20) | ✅ `~/.claude/skills/` | ✅ `~/.gemini/skills/` | ✅ `~/.codex/skills/` |
 | Instructions | ✅ `CLAUDE.md` | ✅ `GEMINI.md` | ✅ `AGENTS.md` |
 | MCP servers | ✅ | ✅ | ✅ |
-| `mattpocock-skills` (25 skills) | ✅ plugin | ✅ via `gemini skills install` | ✅ plugin |
+| `mattpocock-skills` (27 skills) | ✅ plugin | ✅ via `gemini skills install` | ✅ plugin |
 | `spring-tools` plugin | ✅ | ❌ no plugin mechanism | ❌ Claude-format only |
 | speckit | ✅ | ✅ | ✅ (tool-agnostic, via `uv`) |
 | Moderne CLI + OpenRewrite MCP | ✅ | ❌ not supported upstream | ✅ |
@@ -226,13 +226,26 @@ this does.
 #### `mattpocock-skills` — the process layer
 
 [mattpocock/skills](https://github.com/mattpocock/skills) (MIT) replaced
-`superpowers` in 1.0.0. It carries 25 skills: `grill-me`/`grilling` (a
+`superpowers` in 1.0.0. It carries 27 skills: `grill-me`/`grilling` (a
 design-tree interview that stress-tests a plan before any code is written),
 `tdd`, `code-review`, `diagnosing-bugs`, `domain-modeling`, `to-spec`,
 `to-tickets`, `research`, `handoff` and more.
 
 Installed from upstream rather than vendored into `components/skills/`, so it
 tracks the source instead of drifting from a frozen copy.
+
+Every `install` run also brings an existing install up to the latest upstream
+release, because neither plugin CLI refreshes its marketplace snapshot by
+itself — without this the plugin stays at the version first installed:
+
+| Agent | Refresh |
+| --- | --- |
+| Claude Code | `claude plugin marketplace update mattpocock` + `claude plugin update mattpocock-skills@mattpocock` (restart to load) |
+| Codex | `codex plugin marketplace upgrade mattpocock` + `codex plugin add mattpocock-skills@mattpocock` |
+| Gemini CLI | re-runs both `gemini skills install` commands, which overwrite in place |
+
+The row reports `updated` with the version move (e.g. `1.2.3 -> 1.3.2`). `doctor`
+never refreshes: it stays offline and only reports what is installed.
 
 Reaching all three agents takes two different mechanisms, because only two of
 them have a plugin system:

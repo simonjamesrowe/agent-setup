@@ -52,9 +52,9 @@ const runPlugins = (opts) => provisionPlugins({ home: SATISFIED_HOME, ...opts })
 // under `available` are NOT installed and must never be treated as present.
 function codexPluginListJson(entries, available = []) {
   return JSON.stringify({
-    installed: entries.map(({ name, marketplace, enabled = true }) => ({
+    installed: entries.map(({ name, marketplace, enabled = true, version = '1.2.3' }) => ({
       pluginId: `${name}@${marketplace}`, name, marketplaceName: marketplace,
-      version: '1.2.3', installed: true, enabled,
+      version, installed: true, enabled,
       source: { source: 'git', path: `/fake/${name}` },
     })),
     available: available.map(({ name, marketplace }) => ({
@@ -70,8 +70,8 @@ function codexPluginListJson(entries, available = []) {
 // multi-line block per plugin (`  ❯ name@marketplace` / `    Status: ✔ enabled`), which is why
 // the provisioner now reads --json instead.
 function pluginListJson(entries) {
-  return JSON.stringify(entries.map(({ id, enabled }) => ({
-    id, enabled, version: '1.0.0', scope: 'user',
+  return JSON.stringify(entries.map(({ id, enabled, version = '1.0.0' }) => ({
+    id, enabled, version, scope: 'user',
     installPath: `/fake/${id}`, installedAt: '2026-01-01T00:00:00.000Z', lastUpdated: '2026-01-01T00:00:00.000Z',
   })));
 }
@@ -91,8 +91,8 @@ test('findPlugin parses real `claude plugin list --json` shape, matches by id pr
     },
   ]);
 
-  assert.deepStrictEqual(findPlugin(real, 'spring-tools'), { marketplace: 'spring-tools-marketplace', enabled: true });
-  assert.deepStrictEqual(findPlugin(real, 'superpowers'), { marketplace: 'claude-plugins-official', enabled: false });
+  assert.deepStrictEqual(findPlugin(real, 'spring-tools'), { marketplace: 'spring-tools-marketplace', enabled: true, version: '2.2.0' });
+  assert.deepStrictEqual(findPlugin(real, 'superpowers'), { marketplace: 'claude-plugins-official', enabled: false, version: '6.2.0' });
   assert.strictEqual(findPlugin(real, 'not-installed'), null);
   assert.strictEqual(findPlugin('[]', 'superpowers'), null);
   assert.strictEqual(findPlugin('not json', 'superpowers'), null);
@@ -108,8 +108,8 @@ test('findCodexPlugin parses real `codex plugin list --json` shape, ignores `ava
     [{ name: 'linear', marketplace: 'openai-curated' }]
   );
 
-  assert.deepStrictEqual(findCodexPlugin(real, 'browser'), { marketplace: 'openai-bundled', enabled: true });
-  assert.deepStrictEqual(findCodexPlugin(real, MATTPOCOCK_PLUGIN), { marketplace: 'mattpocock', enabled: false });
+  assert.deepStrictEqual(findCodexPlugin(real, 'browser'), { marketplace: 'openai-bundled', enabled: true, version: '1.2.3' });
+  assert.deepStrictEqual(findCodexPlugin(real, MATTPOCOCK_PLUGIN), { marketplace: 'mattpocock', enabled: false, version: '1.2.3' });
   // Present in `available` but not installed: must read as absent, not as an installed plugin.
   assert.strictEqual(findCodexPlugin(real, 'linear'), null);
   assert.strictEqual(findCodexPlugin('{"installed":[]}', 'x'), null);
@@ -119,8 +119,16 @@ test('findCodexPlugin parses real `codex plugin list --json` shape, ignores `ava
 
 // One fake that answers every probe provisionPlugins makes on a fully provisioned machine:
 // mattpocock-skills installed for claude and codex, superpowers absent, speckit present, mod
-// present and its MCP server registered. `overrides` is consulted first and may return undefined
+// present and its MCP server registered. The mattpocock refresh steps succeed without moving the
+// version, as they do when the installed plugin is already the latest release. `overrides` is consulted first and may return undefined
 // to fall through, so each test moves exactly one answer off the baseline.
+const REFRESH_CALLS = [
+  'claude plugin marketplace update mattpocock',
+  `claude plugin update ${MATTPOCOCK_PLUGIN}@mattpocock`,
+  'codex plugin marketplace upgrade mattpocock',
+  `codex plugin add ${MATTPOCOCK_PLUGIN}@mattpocock`,
+];
+
 function fullExec({ calls = [], overrides = () => undefined } = {}) {
   return (bin, args) => {
     const line = [bin, ...args].join(' ');
@@ -136,6 +144,8 @@ function fullExec({ calls = [], overrides = () => undefined } = {}) {
     if (bin === 'codex' && args[0] === 'plugin' && args[1] === 'list') {
       return ok(codexPluginListJson([{ name: MATTPOCOCK_PLUGIN, marketplace: 'mattpocock' }]));
     }
+    if (REFRESH_CALLS.includes(line)) return ok();
+    if (bin === 'gemini' && args[0] === 'skills' && args[1] === 'install') return ok();
     if (bin === 'specify' && args[0] === '--version') return ok('specify 0.1.0');
     if (bin === 'mod' && args[0] === '--version') return ok('mod 4.6.3');
     if (bin === 'which') return ok('/opt/homebrew/bin/mod\n');
@@ -144,7 +154,7 @@ function fullExec({ calls = [], overrides = () => undefined } = {}) {
   };
 }
 
-test('all present and enabled -> unchanged, nothing installed, nothing prompted', async () => {
+test('all present and enabled -> unchanged, nothing newly installed, nothing prompted', async () => {
   const calls = [];
   const promptCalls = [];
   const prompt = async (q, def) => { promptCalls.push(q); return def; };
@@ -157,7 +167,9 @@ test('all present and enabled -> unchanged, nothing installed, nothing prompted'
   assert.strictEqual(byItem(results).speckit.status, 'unchanged');
   assert.strictEqual(byItem(results)['spring-tools'].status, 'unchanged');
   assert.strictEqual(promptCalls.length, 0, 'must not prompt when nothing needs installing');
-  assert.ok(!calls.some((c) => /plugin (install|add|enable|uninstall|remove)\b/.test(c) || c.includes('marketplace add') || c.includes('skills install')));
+  // The only writes are the mattpocock refresh steps, which keep an already-installed set current.
+  assert.ok(!calls.some((c) => /plugin (install|enable|uninstall|remove)\b/.test(c) || c.includes('marketplace add')));
+  assert.ok(!calls.some((c) => / plugin add /.test(c) && !REFRESH_CALLS.includes(c)));
 });
 
 // The whole point of the swap: superpowers must never be installed by this tool again.
@@ -293,6 +305,97 @@ test('mattpocock-skills: gemini check mode reports missing without exec-ing gemi
   assert.strictEqual(row.status, 'missing');
   assert.match(row.note, new RegExp(`${MATTPOCOCK_SKILL_NAMES.length} of ${MATTPOCOCK_SKILL_NAMES.length} skills absent`));
   assert.ok(!calls.some((c) => c.startsWith('gemini ')));
+});
+
+// Without a refresh, an installed plugin stays on the version cached by the marketplace snapshot
+// taken at first install: mattpocock-skills sat on 1.2.3 for Claude while upstream shipped 1.3.2.
+test('mattpocock-skills: claude refreshes the marketplace before updating, and reports the version move', async () => {
+  const calls = [];
+  let version = '1.2.3';
+  const exec = fullExec({
+    calls,
+    overrides: (bin, args, line) => {
+      if (bin === 'claude' && args[0] === 'plugin' && args[1] === 'list') {
+        return ok(pluginListJson([
+          { id: `${MATTPOCOCK_PLUGIN}@mattpocock`, enabled: true, version },
+          { id: 'spring-tools@spring-tools-marketplace', enabled: true },
+        ]));
+      }
+      if (line === `claude plugin update ${MATTPOCOCK_PLUGIN}@mattpocock`) { version = '1.3.2'; return ok(); }
+      return undefined;
+    },
+  });
+
+  const results = await runPlugins({ exec, check: false, yes: false, prompt: async () => { throw new Error('must not prompt to refresh'); }, adapters: claudeOnly });
+  const row = results.find((r) => r.item === MATTPOCOCK_PLUGIN && r.tool === 'claude');
+
+  assert.strictEqual(row.status, 'updated');
+  assert.strictEqual(row.note, '1.2.3 -> 1.3.2');
+  const refresh = calls.indexOf('claude plugin marketplace update mattpocock');
+  const update = calls.indexOf(`claude plugin update ${MATTPOCOCK_PLUGIN}@mattpocock`);
+  assert.ok(refresh !== -1 && update > refresh, 'the marketplace snapshot must be refreshed before the plugin update');
+  // Refresh is opt-in per plugin; spring-tools has no refresh steps and is left alone.
+  assert.ok(!calls.some((c) => c.includes('spring-tools') && /update/.test(c)));
+});
+
+test('mattpocock-skills: codex upgrades the marketplace then re-adds, and reports the version move', async () => {
+  const calls = [];
+  let version = '1.3.1';
+  const exec = fullExec({
+    calls,
+    overrides: (bin, args, line) => {
+      if (bin === 'codex' && args[0] === 'plugin' && args[1] === 'list') {
+        return ok(codexPluginListJson([{ name: MATTPOCOCK_PLUGIN, marketplace: 'mattpocock', version }]));
+      }
+      if (line === `codex plugin add ${MATTPOCOCK_PLUGIN}@mattpocock`) { version = '1.3.2'; return ok(); }
+      return undefined;
+    },
+  });
+
+  const results = await runPlugins({ exec, check: false, yes: true, prompt: async () => true, adapters: codexOnly });
+  const row = results.find((r) => r.item === MATTPOCOCK_PLUGIN && r.tool === 'codex');
+
+  assert.strictEqual(row.status, 'updated');
+  assert.strictEqual(row.note, '1.3.1 -> 1.3.2');
+  const upgrade = calls.indexOf('codex plugin marketplace upgrade mattpocock');
+  const add = calls.indexOf(`codex plugin add ${MATTPOCOCK_PLUGIN}@mattpocock`);
+  assert.ok(upgrade !== -1 && add > upgrade, 'the marketplace snapshot must be upgraded before re-adding');
+});
+
+test('mattpocock-skills: a failed refresh is reported as failed, not unchanged', async () => {
+  const exec = fullExec({
+    overrides: (bin, args, line) => (line === 'claude plugin marketplace update mattpocock' ? fail('network unreachable') : undefined),
+  });
+
+  const results = await runPlugins({ exec, check: false, yes: true, prompt: async () => true, adapters: claudeOnly });
+  const row = results.find((r) => r.item === MATTPOCOCK_PLUGIN && r.tool === 'claude');
+
+  assert.strictEqual(row.status, 'failed');
+  assert.match(row.note, /refresh failed: network unreachable/);
+});
+
+test('mattpocock-skills: gemini re-runs the upstream install when every skill is already present', async () => {
+  const calls = [];
+  const results = await runPlugins({ exec: fullExec({ calls }), check: false, yes: true, prompt: async () => true, adapters: geminiOnly });
+  const row = results.find((r) => r.item === MATTPOCOCK_PLUGIN && r.tool === 'gemini');
+
+  assert.strictEqual(row.status, 'unchanged');
+  const geminiCalls = calls.filter((c) => c.startsWith('gemini skills install'));
+  assert.strictEqual(geminiCalls.length, 2);
+});
+
+test('mattpocock-skills: check mode never refreshes, for any agent', async () => {
+  const calls = [];
+  const results = await runPlugins({
+    exec: fullExec({ calls }), check: true, yes: false,
+    prompt: async () => { throw new Error('must never prompt in check mode'); },
+    adapters: allThree,
+  });
+
+  for (const row of results.filter((r) => r.item === MATTPOCOCK_PLUGIN)) {
+    assert.strictEqual(row.status, 'unchanged', `${row.tool} should be unchanged`);
+  }
+  assert.ok(!calls.some((c) => REFRESH_CALLS.includes(c) || c.startsWith('gemini skills install')));
 });
 
 test('superpowers: uninstalled from claude and codex, using each tool\'s own verb and marketplace', async () => {
@@ -585,6 +688,7 @@ test('moderne: mod no-ops but direct `mcp add` succeeds -> installed, with a not
       return ok(pluginListJson([{ id: `${MATTPOCOCK_PLUGIN}@mattpocock`, enabled: true }, { id: 'spring-tools@spring-tools-marketplace', enabled: true }]));
     }
     if (bin === 'codex' && args[0] === 'plugin' && args[1] === 'list') return ok(codexPluginListJson([{ name: MATTPOCOCK_PLUGIN, marketplace: 'mattpocock' }]));
+    if (REFRESH_CALLS.includes(line)) return ok();
     if (bin === 'specify' && args[0] === '--version') return ok('specify 0.1.0');
     if (bin === 'mod' && args[0] === '--version') return ok('mod 4.6.3');
     if (bin === 'which') return ok('/opt/homebrew/bin/mod\n');
@@ -625,8 +729,9 @@ test('moderne: gemini is reported unsupported and never provisioned', async () =
   assert.strictEqual(gemini.status, 'skipped');
   assert.match(gemini.note, /not supported/i);
   assert.deepStrictEqual(moderneRows.filter((r) => r.tool !== 'gemini').map((r) => r.status), ['unchanged', 'unchanged']);
-  // An unsupported agent must never be probed via its own binary.
-  assert.ok(!calls.some((c) => c.startsWith('gemini ')));
+  // An unsupported agent must never be probed via its own binary. (`gemini skills install` is the
+  // mattpocock-skills refresh, not a moderne probe.)
+  assert.ok(!calls.some((c) => c.startsWith('gemini ') && !c.startsWith('gemini skills install')));
 });
 
 test('moderne: no adapters -> skipped, never execs mod or brew', async () => {
