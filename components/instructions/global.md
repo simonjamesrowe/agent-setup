@@ -146,6 +146,11 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   a suppression window held in both React state and a ref). Refresh both on
   every trigger event, or derive the visible UI state from the single
   authoritative source, so the displayed state can't outlive the real one.
+- **Account for post-fetch visibility filtering when limiting results.** When a
+  query applies filters after fetching (visibility checks, soft deletes),
+  over-fetch or load results in windows so the returned set still meets the
+  requested limit after filtering — filtering a page fetched at the limit can
+  silently under-return.
 - **Verify new constants against existing references before committing them.**
   When introducing a constant or config value representing a real-world entity
   (name, title, identifier), grep specs, comments, and backend code for
