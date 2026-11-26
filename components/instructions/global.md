@@ -156,6 +156,14 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   (name, title, identifier), grep specs, comments, and backend code for
   existing references to that entity and ensure the value matches — mismatches
   are user-visible accuracy regressions.
+- **Implement compensating rollback or state restoration at every entry point
+  of a multi-step operation**, not just the one found first. Audit all code
+  paths that can trigger the operation and confirm each restores state on
+  failure the same way.
+- **Provide a safe fallback for titles sourced from external feeds or
+  generative models.** Content containing control sequences, markup, or other
+  problematic characters shouldn't reach the title as-is — fall back to a
+  sanitized or default value.
 
 ## Git conventions (this org)
 
