@@ -164,6 +164,15 @@ org (the simonrowe.dev monorepo and its satellites). Ignore it in other repos.
   generative models.** Content containing control sequences, markup, or other
   problematic characters shouldn't reach the title as-is — fall back to a
   sanitized or default value.
+- **Initialize time-series windows per entity, not globally.** When tracking
+  per-entity windows (e.g. uptime gaps per hostname), initialize from each
+  entity's first event, not a global start — otherwise entities added after
+  system startup get incorrect tracking. Test that a newly-added entity shows
+  no data before its own first event.
+- **Never expose raw exception bodies in API responses.** Sanitize to
+  exception type and operation path only (e.g. "JsonParseException from
+  /api/v1/project"); log full exception details separately. Add a test
+  asserting exception bodies never leak into the response payload.
 
 ## Git conventions (this org)
 
